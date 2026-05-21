@@ -9,7 +9,7 @@ $printer_format = get_setting('printer_format', 'a4'); // Get default from setti
 
 $db = db();
 $stmt = $db->prepare("
-  SELECT i.*, c.name as customer_name, c.name_ar as customer_name_ar, c.address, c.address_ar, c.phone,
+  SELECT i.*, c.name as customer_name, COALESCE(c.company_name,'') as customer_company, c.name_ar as customer_name_ar, c.address, c.address_ar, c.phone,
          b.name as branch_name, b.address as branch_address, b.phone as branch_phone,
          u.name as created_by_name
   FROM invoices i
@@ -128,7 +128,13 @@ $decimals = ($currency === 'KWD') ? 3 : 2;
         </div>
         <div class="info-row">
           <span class="info-label">Name | الاسم:</span>
-          <span class="info-value"><?= htmlspecialchars($inv['customer_name']) ?><?php if ($inv['customer_name_ar']) echo '<span class="arabic">' . htmlspecialchars($inv['customer_name_ar']) . '</span>'; ?></span>
+          <span class="info-value">
+            <?php if ($inv['customer_company']): ?>
+            <strong><?= htmlspecialchars($inv['customer_company']) ?></strong><br>
+            <?php endif; ?>
+            <?= htmlspecialchars($inv['customer_name']) ?>
+            <?php if ($inv['customer_name_ar']): ?><span class="arabic"><?= htmlspecialchars($inv['customer_name_ar']) ?></span><?php endif; ?>
+          </span>
         </div>
         <?php if ($inv['address']): ?>
         <div class="info-row">

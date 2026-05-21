@@ -383,7 +383,7 @@ html[dir="rtl"] .toast.warning{border-left:none;border-right:3px solid var(--amb
       <div class="user-name truncate"><?= htmlspecialchars($user['name']) ?></div>
       <div class="user-role"><?= ucfirst(str_replace('_',' ',$user['role'])) ?></div>
     </div>
-    <button onclick="confirmLogout()" style="font-size:16px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px;border-radius:6px;transition:color var(--transition),background var(--transition)" title="<?= __('logout') ?>" onmouseover="this.style.color='var(--red)';this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'">🚪</button>
+    <a href="<?= BASE ?>/logout.php" style="font-size:16px;color:var(--text3);text-decoration:none" title="<?= __('logout') ?>">🚪</a>
   </div>
 </nav>
 
@@ -449,19 +449,6 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── Mobile Sidebar ──
-function confirmLogout() {
-  appConfirm({
-    title: '<?= __("logout") ?>',
-    message: 'Are you sure you want to log out?',
-    detail: 'Any unsaved changes (e.g. open POS cart) will be lost.',
-    type: 'warning',
-    confirmText: '🚪 Log Out',
-    cancelText: 'Stay',
-    onConfirm: function() {
-      window.location.href = '<?= BASE ?>/logout.php';
-    }
-  });
-}
 function toggleSidebar() {
   const s = document.getElementById('sidebar');
   const o = document.getElementById('sidebar-overlay');

@@ -340,10 +340,24 @@ function processRefund() {
   const mode   = document.getElementById("refund-mode").value;
   const total  = document.getElementById("refund-total").textContent;
 
-  if (!confirm("Process refund of " + total + " by " + mode.toUpperCase() + "?\n\nReason: " + reason + "\n\nThis will return items to stock and cannot be undone.")) return;
+  appConfirm({
+    type: "refund",
+    title: "Process Refund",
+    message: "Refund " + total + " via " + mode.toUpperCase() + " — Reason: " + reason,
+    detail: "Items will be returned to stock. This action cannot be undone.",
+    icon: "↩️",
+    confirmText: "Yes, Process Refund",
+    cancelText: "Cancel",
+    onConfirm: function() {
+      document.getElementById("refund-btn").disabled = true;
+      document.getElementById("refund-btn").textContent = "Processing...";
+      _doRefund();
+    }
+  });
+  return; // wait for confirm dialog
+}
 
-  document.getElementById("refund-btn").disabled = true;
-  document.getElementById("refund-btn").textContent = "Processing...";
+function _doRefund() {
 
   fetch("' . BASE . '/api/refund.php", {
     method: "POST",

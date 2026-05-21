@@ -17,8 +17,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
 }
 
 if (isset($_GET['mark_complete'])) {
-    $db->prepare("UPDATE purchase_orders SET status='completed' WHERE id=?")->execute([(int)$_GET['mark_complete']]);
-    header('Location: ' . BASE . '/purchases.php?success=' . urlencode('Order marked complete'));
+    $po_id = (int)$_GET['mark_complete'];
+    $db->beginTransaction();
+    try {
+        $po = $db->prepare("SELECT * FROM purchase_orders WHERE id=? AND status != 'completed'");
+        $po->execute([$po_id]);
+        $po_row = $po->fetch();
+        if ($po_row) {
+            // Update stock for all PO items
+            $items = $db->prepare("SELECT * FROM purchase_order_items WHERE po_id=?");
+            $items->execute([$po_id]);
+            $po_items = $items->fetchAll();
+            foreach ($po_items as $item) {
+                $qty = (int)$item['qty_ordered'];
+                if ($qty > 0) {
+                    $db->prepare("INSERT INTO stock (product_id,branch_id,qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+?")
+                       ->execute([$item['product_id'], $po_row['branch_id'], $qty, $qty]);
+                    $db->prepare("INSERT INTO stock_movements (product_id,branch_id,type,qty,reference,notes,user_id) VALUES (?,?,'in',?,?,?,?)")
+                       ->execute([$item['product_id'], $po_row['branch_id'], $qty, $po_row['po_number'], 'Purchase order received', current_user()['id']]);
+                }
+            }
+            // Deduct from supplier balance (we owe them the total_amount)
+            $unpaid = $po_row['total_amount'] - $po_row['paid_amount'];
+            if ($unpaid > 0) {
+                $db->prepare("UPDATE suppliers SET balance = balance - ? WHERE id=?")->execute([$unpaid, $po_row['supplier_id']]);
+            }
+            $db->prepare("UPDATE purchase_orders SET status='completed' WHERE id=?")->execute([$po_id]);
+        }
+        $db->commit();
+    } catch (Exception $e) {
+        $db->rollBack();
+        header('Location: ' . BASE . '/purchases.php?error=' . urlencode('Error: ' . $e->getMessage()));
+        exit;
+    }
+    header('Location: ' . BASE . '/purchases.php?success=' . urlencode('Order marked complete — stock updated'));
     exit;
 }
 
@@ -34,8 +66,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
 
 // Delete PO
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_po') {
+    $db->prepare("DELETE FROM purchase_order_items WHERE po_id=?")->execute([(int)$_POST['po_id']]);
     $db->prepare("DELETE FROM purchase_orders WHERE id=?")->execute([(int)$_POST['po_id']]);
     header('Location: ' . BASE . '/purchases.php?success=' . urlencode('Purchase order deleted'));
+    exit;
+}
+
+// Add PO item
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_po_item') {
+    $po_id   = (int)$_POST['po_id'];
+    $prod_id = (int)$_POST['product_id'];
+    $qty     = max(1, (int)$_POST['qty_ordered']);
+    $cost    = (float)$_POST['unit_cost'];
+    $db->prepare("INSERT INTO purchase_order_items (po_id,product_id,qty_ordered,unit_cost) VALUES (?,?,?,?)
+                  ON DUPLICATE KEY UPDATE qty_ordered=qty_ordered+?, unit_cost=?")->execute([$po_id,$prod_id,$qty,$cost,$qty,$cost]);
+    // Update PO total_amount
+    $db->prepare("UPDATE purchase_orders SET total_amount=(SELECT COALESCE(SUM(qty_ordered*unit_cost),0) FROM purchase_order_items WHERE po_id=?) WHERE id=?")->execute([$po_id,$po_id]);
+    header('Location: ' . BASE . '/purchases.php?success=' . urlencode('Item added'));
+    exit;
+}
+
+// Delete PO item
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_po_item') {
+    $item_id = (int)$_POST['item_id'];
+    $po_id   = (int)$_POST['po_id'];
+    $db->prepare("DELETE FROM purchase_order_items WHERE id=?")->execute([$item_id]);
+    $db->prepare("UPDATE purchase_orders SET total_amount=(SELECT COALESCE(SUM(qty_ordered*unit_cost),0) FROM purchase_order_items WHERE po_id=?) WHERE id=?")->execute([$po_id,$po_id]);
+    header('Location: ' . BASE . '/purchases.php?success=' . urlencode('Item removed'));
     exit;
 }
 
@@ -63,10 +120,17 @@ $orders->execute($params);
 $orders = $orders->fetchAll();
 
 $suppliers = $db->query("SELECT id, company FROM suppliers WHERE is_active=1 ORDER BY company")->fetchAll();
+$all_products_po = $db->query("SELECT p.id, p.name, p.sku, p.cost_price, COALESCE(SUM(s.qty),0) as stock FROM products p LEFT JOIN stock s ON s.product_id=p.id WHERE p.is_active=1 GROUP BY p.id ORDER BY p.name")->fetchAll();
 $branches  = $db->query("SELECT id, name FROM branches WHERE is_active=1")->fetchAll();
 
 require __DIR__ . '/includes/header.php';
 ?>
+
+<?php if (isset($_GET['success'])): ?>
+<div class="alert alert-success" style="margin-bottom:16px">✅ <?= htmlspecialchars($_GET['success']) ?></div>
+<?php elseif (isset($_GET['error'])): ?>
+<div class="alert alert-error" style="margin-bottom:16px">❌ <?= htmlspecialchars($_GET['error']) ?></div>
+<?php endif; ?>
 
 <div class="inv-filters">
   <a href="<?= BASE ?>/purchases.php" class="filter-chip <?= !$filter?'active':'' ?>"><?= __('all') ?></a>
@@ -104,8 +168,9 @@ require __DIR__ . '/includes/header.php';
           <td>
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm" onclick='editPO(<?= json_encode($po, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>✏️</button>
-              <?php if ($po['status'] !== 'completed'): ?>
-              <a href="<?= BASE ?>/purchases.php?mark_complete=<?= $po['id'] ?>" class="btn btn-sm btn-green" onclick="return confirm('Mark as completed?')">✓</a>
+              <button class="btn btn-ghost btn-sm" onclick="viewItems(<?= $po['id'] ?>, '<?= htmlspecialchars(addslashes($po['po_number'])) ?>')">📦</button>
+              <?php if ($po['status'] !== 'completed' && $po['status'] !== 'cancelled'): ?>
+              <a href="<?= BASE ?>/purchases.php?mark_complete=<?= $po['id'] ?>" class="btn btn-sm btn-green" onclick="return confirm('Mark as completed? This will update stock levels.')">✓ Receive</a>
               <?php endif; ?>
               <form method="POST" style="display:inline" onsubmit="return confirm('Delete this purchase order?')">
                 <input type="hidden" name="action" value="delete_po"><input type="hidden" name="po_id" value="<?= $po['id'] ?>">
@@ -212,8 +277,54 @@ require __DIR__ . '/includes/header.php';
   </div>
 </div>
 
+<!-- PO ITEMS MODAL -->
+<div class="modal-backdrop" id="items-modal">
+  <div class="modal" style="width:700px">
+    <div class="modal-header">
+      <div class="modal-title" id="items-modal-title">📦 PO Items</div>
+      <button class="modal-close" onclick="closeModal('items-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="items-modal-body" style="padding:0">
+      <div style="padding:20px;text-align:center;color:var(--text3)">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD PO ITEM MODAL -->
+<div class="modal-backdrop" id="add-item-modal">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <div class="modal-title">Add Item to PO</div>
+      <button class="modal-close" onclick="closeModal('add-item-modal')">✕</button>
+    </div>
+    <form method="POST">
+      <input type="hidden" name="action" value="add_po_item">
+      <input type="hidden" name="po_id" id="ai-po-id">
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Product *</label>
+          <select class="form-select" name="product_id" required>
+            <option value="">Select product...</option>
+            <?php foreach ($all_products_po as $pr): ?>
+            <option value="<?= $pr['id'] ?>" data-cost="<?= $pr['cost_price'] ?>"><?= htmlspecialchars($pr['name']) ?> (<?= $pr['sku'] ?>)</option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Qty Ordered *</label><input class="form-input" name="qty_ordered" id="ai-qty" type="number" min="1" value="1" required></div>
+          <div class="form-group"><label class="form-label">Unit Cost (<?= $currency ?>)</label><input class="form-input" name="unit_cost" id="ai-cost" type="number" step="0.001" min="0" value="0.000"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-item-modal')"><?= __('cancel') ?></button>
+        <button type="submit" class="btn btn-primary">Add Item</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <?php
-$extra_js = '<script>
+ob_start(); ?>
+<script>
 function editPO(po) {
   document.getElementById("epo-id").value = po.id;
   document.getElementById("epo-supplier").value = po.supplier_id;
@@ -235,5 +346,60 @@ function printPO() {
   win.document.close();
   win.print();
 }
-</script>';
+function viewItems(poId, poNum) {
+  document.getElementById("items-modal-title").textContent = "📦 Items — " + poNum;
+  document.getElementById("ai-po-id").value = poId;
+  const body = document.getElementById("items-modal-body");
+  body.innerHTML = "<div style=\"padding:30px;text-align:center;color:var(--text3)\">Loading...</div>";
+  openModal("items-modal");
+  fetch("<?= BASE ?>/api/po_items.php?po_id=" + poId)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.items || !data.items.length) {
+        body.innerHTML = "<div style=\"padding:24px;text-align:center;color:var(--text3)\">No items added yet.<br><button class=\"btn btn-primary\" style=\"margin-top:12px\" onclick=\"openAddItem()\">+ Add Item</button></div>";
+        return;
+      }
+      let html = "<table style=\"width:100%;border-collapse:collapse\"><thead><tr>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\">Product</th>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\">SKU</th>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\">Qty Ordered</th>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\">Unit Cost</th>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\">Line Total</th>";
+      html += "<th style=\"padding:8px 12px;background:var(--bg3);font-size:11px\"></th>";
+      html += "</tr></thead><tbody>";
+      let grandTotal = 0;
+      data.items.forEach(i => {
+        const line = i.qty_ordered * i.unit_cost;
+        grandTotal += line;
+        html += "<tr>";
+        html += "<td style=\"padding:8px 12px;font-weight:500\">" + i.name + "</td>";
+        html += "<td style=\"padding:8px 12px;font-size:11px;color:var(--text3)\">" + i.sku + "</td>";
+        html += "<td style=\"padding:8px 12px\">" + i.qty_ordered + "</td>";
+        html += "<td style=\"padding:8px 12px\">" + parseFloat(i.unit_cost).toFixed(3) + "</td>";
+        html += "<td style=\"padding:8px 12px;font-weight:600\">" + line.toFixed(3) + "</td>";
+        html += "<td style=\"padding:8px 12px\"><form method=\"POST\" style=\"display:inline\" onsubmit=\"return confirm('Remove item?')\"><input type=\"hidden\" name=\"action\" value=\"delete_po_item\"><input type=\"hidden\" name=\"item_id\" value=\""+i.id+"\"><input type=\"hidden\" name=\"po_id\" value=\""+poId+"\"><button type=\"submit\" class=\"btn btn-ghost btn-sm\" style=\"color:var(--red)\">🗑️</button></form></td>";
+        html += "</tr>";
+      });
+      html += "<tr style=\"background:var(--bg3);font-weight:700\"><td colspan=\"4\" style=\"padding:10px 12px\">Total</td><td style=\"padding:10px 12px\">" + grandTotal.toFixed(3) + "</td><td></td></tr>";
+      html += "</tbody></table>";
+      html += "<div style=\"padding:12px\"><button class=\"btn btn-primary btn-sm\" onclick=\"openAddItem()\">+ Add Item</button></div>";
+      body.innerHTML = html;
+    })
+    .catch(() => { body.innerHTML = "<div style=\"padding:24px;text-align:center;color:var(--red)\">Failed to load items</div>"; });
+}
+function openAddItem() {
+  closeModal("items-modal");
+  openModal("add-item-modal");
+}
+// Auto-fill cost price when product selected
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.closest("#add-item-modal") && e.target.tagName === "SELECT") {
+    const opt = e.target.selectedOptions[0];
+    const cost = opt ? opt.dataset.cost : null;
+    if (cost) document.getElementById("ai-cost").value = parseFloat(cost).toFixed(3);
+  }
+});
+</script>
+<?php
+$extra_js = ob_get_clean();
 require __DIR__ . '/includes/footer.php'; ?>

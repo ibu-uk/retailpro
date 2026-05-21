@@ -23,26 +23,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'adjus
     exit;
 }
 
-// Stats
-$total_stock  = $db->query("SELECT COALESCE(SUM(qty),0) as s FROM stock")->fetch()['s'];
-$in_stock     = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 10")->fetch()['c'];
-$low_stock    = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 0 AND qty <= 5")->fetch()['c'];
-$out_stock    = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty = 0")->fetch()['c'];
-$damaged      = $db->query("SELECT COUNT(*) as c FROM stock_movements WHERE type='damage'")->fetch()['c'];
+// Branch filter from GET param (set when clicking Stock button from branches page)
+$filter_branch_id = (int)($_GET['branch_id'] ?? 0);
+$branch_name_filter = '';
+if ($filter_branch_id) {
+    $bn = $db->prepare("SELECT name FROM branches WHERE id=?");
+    $bn->execute([$filter_branch_id]);
+    $branch_name_filter = $bn->fetchColumn() ?: '';
+}
+$bwhere_stock    = $filter_branch_id ? "AND s.branch_id = $filter_branch_id"          : "";
+$bwhere_mv       = $filter_branch_id ? "WHERE sm.branch_id = $filter_branch_id"        : "";
+$bwhere_mv_and   = $filter_branch_id ? "AND sm.branch_id = $filter_branch_id"          : "";
+$bwhere_plain    = $filter_branch_id ? "AND branch_id = $filter_branch_id"             : "";
+$bwhere_plain_wh = $filter_branch_id ? "WHERE branch_id = $filter_branch_id"           : "";
 
-// Movements log with pagination
+// Stats (scoped to branch if filtered) — use plain column refs, no table alias
+$total_stock = $db->query("SELECT COALESCE(SUM(qty),0) as s FROM stock $bwhere_plain_wh")->fetch()['s'];
+$in_stock    = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 10 $bwhere_plain")->fetch()['c'];
+$low_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 0 AND qty <= 5 $bwhere_plain")->fetch()['c'];
+$out_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty = 0 $bwhere_plain")->fetch()['c'];
+$damaged     = $db->query("SELECT COUNT(*) as c FROM stock_movements WHERE type='damage' $bwhere_plain")->fetch()['c'];
+
+// Movements log with pagination (filtered by branch)
 $mv_page = max(1, (int)($_GET['mp'] ?? 1));
-$mv_per = 20;
+$mv_per  = 20;
 $mv_offset = ($mv_page - 1) * $mv_per;
-$total_movements = $db->query("SELECT COUNT(*) FROM stock_movements")->fetchColumn();
+$total_movements = $db->query("SELECT COUNT(*) FROM stock_movements sm $bwhere_mv")->fetchColumn();
 $total_mv_pages = ceil($total_movements / $mv_per);
-
 $movements = $db->query("
     SELECT sm.*, p.name as product_name, b.name as branch_name, u.name as user_name
     FROM stock_movements sm
     JOIN products p ON p.id = sm.product_id
     JOIN branches b ON b.id = sm.branch_id
     LEFT JOIN users u ON u.id = sm.user_id
+    " . ($filter_branch_id ? "WHERE sm.branch_id = $filter_branch_id" : "") . "
     ORDER BY sm.created_at DESC LIMIT $mv_per OFFSET $mv_offset
 ")->fetchAll();
 
@@ -50,20 +64,20 @@ $movements = $db->query("
 $all_products = $db->query("SELECT id, name, sku FROM products WHERE is_active=1 ORDER BY name")->fetchAll();
 $all_branches = $db->query("SELECT id, name FROM branches WHERE is_active=1")->fetchAll();
 
-// Stock by product with pagination
+// Stock by product with pagination (filtered by branch when set)
 $sp_page = max(1, (int)($_GET['sp'] ?? 1));
-$sp_per = 20;
+$sp_per  = 20;
 $sp_offset = ($sp_page - 1) * $sp_per;
 $total_stock_items = $db->query("SELECT COUNT(*) FROM products WHERE is_active=1")->fetchColumn();
 $total_sp_pages = ceil($total_stock_items / $sp_per);
 
 $stock_table = $db->query("
-    SELECT p.id, p.name, p.sku, c.emoji, c.name as cat,
+    SELECT p.id, p.name, p.sku, COALESCE(c.emoji,'📦') as emoji, COALESCE(c.name,'—') as cat,
            COALESCE(SUM(s.qty),0) as total_qty,
            MIN(s.qty) as min_branch_qty
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
-    LEFT JOIN stock s ON s.product_id = p.id
+    LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock
     WHERE p.is_active=1
     GROUP BY p.id ORDER BY total_qty ASC LIMIT $sp_per OFFSET $sp_offset
 ")->fetchAll();
@@ -71,12 +85,32 @@ $stock_table = $db->query("
 require __DIR__ . '/includes/header.php';
 ?>
 
-<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-  <button class="btn btn-primary" onclick="openModal('stock-modal')">📥 <?= __('stock_in') ?></button>
-  <button class="btn btn-ghost" onclick="openModal('stock-modal')">📤 <?= __('stock_out') ?></button>
-  <button class="btn btn-ghost" onclick="openModal('stock-modal')">🔄 <?= __('adjust_stock') ?></button>
+<?php if (isset($_GET['success'])): ?>
+<div class="alert alert-success" style="margin-bottom:12px">✅ <?= htmlspecialchars($_GET['success']) ?></div>
+<?php endif; ?>
+
+<?php if ($filter_branch_id && $branch_name_filter): ?>
+<div class="alert" style="background:rgba(67,97,238,.08);border:1px solid rgba(67,97,238,.2);color:var(--accent2);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+  <span>🏪 Showing stock for: <strong><?= htmlspecialchars($branch_name_filter) ?></strong></span>
+  <a href="<?= BASE ?>/inventory.php" class="btn btn-ghost btn-sm">✕ Show All Branches</a>
+</div>
+<?php endif; ?>
+
+<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+  <button class="btn btn-primary" onclick="openStockModal('in')">📥 <?= __('stock_in') ?></button>
+  <button class="btn btn-ghost" onclick="openStockModal('out')">📤 <?= __('stock_out') ?></button>
+  <button class="btn btn-ghost" onclick="openStockModal('adjustment')">🔄 <?= __('adjust_stock') ?></button>
+  <!-- Branch quick-filter -->
+  <form method="GET" style="display:flex;align-items:center;gap:6px;margin-left:8px">
+    <select class="search-input" name="branch_id" style="width:160px;font-size:12px" onchange="this.form.submit()">
+      <option value="0" <?= !$filter_branch_id ? 'selected' : '' ?>>🏪 All Branches</option>
+      <?php foreach ($all_branches as $ab): ?>
+      <option value="<?= $ab['id'] ?>" <?= $filter_branch_id == $ab['id'] ? 'selected' : '' ?>><?= htmlspecialchars($ab['name']) ?></option>
+      <?php endforeach; ?>
+    </select>
+  </form>
   <div style="margin-left:auto;display:flex;gap:6px">
-    <a href="<?= BASE ?>/api/export_inventory.php" class="btn btn-ghost btn-sm">📊 Excel</a>
+    <a href="<?= BASE ?>/api/export_inventory.php<?= $filter_branch_id ? '?branch_id='.$filter_branch_id : '' ?>" class="btn btn-ghost btn-sm">📊 Excel</a>
     <button type="button" class="btn btn-ghost btn-sm" onclick="printInventory()">🖨️ Print</button>
   </div>
 </div>
@@ -210,6 +244,17 @@ require __DIR__ . '/includes/header.php';
 
 <?php
 $extra_js = '<script>
+function openStockModal(type) {
+  var sel = document.querySelector("[name=type]");
+  if (sel) sel.value = type || "in";
+  // Pre-select filtered branch if one is active
+  var bid = <?= $filter_branch_id ?: 0 ?>;
+  if (bid) {
+    var bsel = document.querySelector("[name=branch_id]");
+    if (bsel) bsel.value = bid;
+  }
+  openModal("stock-modal");
+}
 function printInventory() {
   const table = document.getElementById("stock-table");
   const win = window.open("","_blank");

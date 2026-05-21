@@ -309,7 +309,7 @@ require __DIR__ . '/includes/header.php';
         </div>
         <div class="form-row">
           <div class="form-group"><label class="form-label"><?= __('color') ?></label><input class="form-input" name="color" id="prod-color" placeholder="e.g. Black, Red"></div>
-          <div class="form-group"><label class="form-label"><?= __('size') ?></label><input class="form-input" name="size" id="prod-size" placeholder="e.g. S, M, L, XL or 40-44"></div>
+          <div class="form-group"><label class="form-label"><?= __('size') ?></label><input class="form-input" name="size" id="prod-size" placeholder="e.g. S, M, L, XL or -1.00, +2.50"></div>
         </div>
         <div class="form-row">
           <div class="form-group" id="prod-stock-wrap"><label class="form-label"><?= __('initial_stock') ?></label><input class="form-input" name="initial_stock" id="prod-stock" type="number" min="0" value="0"></div>

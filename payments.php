@@ -7,32 +7,45 @@ $db = db();
 $currency = get_setting('currency', 'KWD');
 
 // Record payment
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'pay') {
-    $type   = $_POST['pay_type'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay') {
+    $type   = in_array($_POST['pay_type'] ?? '', ['customer','supplier']) ? $_POST['pay_type'] : 'customer';
     $ref_id = (int)$_POST['ref_id'];
     $amount = (float)$_POST['amount'];
-    $mode   = $_POST['payment_mode'];
+    $mode   = $_POST['payment_mode'] ?? 'cash';
     $uid    = current_user()['id'];
 
-    $db->prepare("INSERT INTO payments (type,reference_id,amount,payment_mode,notes,created_by) VALUES (?,?,?,?,?,?)")
-       ->execute([$type, $ref_id, $amount, $mode, trim($_POST['notes'] ?? ''), $uid]);
+    if ($amount <= 0) {
+        header('Location: ' . BASE . '/payments.php?error=' . urlencode('Amount must be greater than zero'));
+        exit;
+    }
 
-    if ($type === 'customer') {
-        $db->prepare("UPDATE customers SET balance = balance + ? WHERE id = ?")->execute([$amount, $ref_id]);
-        // Settle unpaid invoices (oldest first)
-        $unpaid_invs = $db->prepare("SELECT id, total, paid_amount FROM invoices WHERE customer_id=? AND status IN ('credit','partial') ORDER BY created_at ASC");
-        $unpaid_invs->execute([$ref_id]);
-        $remaining = $amount;
-        while ($remaining > 0 && ($inv = $unpaid_invs->fetch())) {
-            $owed = $inv['total'] - $inv['paid_amount'];
-            $apply = min($remaining, $owed);
-            $new_paid = $inv['paid_amount'] + $apply;
-            $new_status = ($new_paid >= $inv['total']) ? 'paid' : 'partial';
-            $db->prepare("UPDATE invoices SET paid_amount=?, status=? WHERE id=?")->execute([$new_paid, $new_status, $inv['id']]);
-            $remaining -= $apply;
+    $db->beginTransaction();
+    try {
+        $db->prepare("INSERT INTO payments (type,reference_id,amount,payment_mode,notes,created_by) VALUES (?,?,?,?,?,?)")
+           ->execute([$type, $ref_id, $amount, $mode, trim($_POST['notes'] ?? ''), $uid]);
+
+        if ($type === 'customer') {
+            $db->prepare("UPDATE customers SET balance = balance + ? WHERE id = ?")->execute([$amount, $ref_id]);
+            // Settle unpaid invoices oldest-first; excess becomes advance credit on customer balance
+            $unpaid_invs = $db->prepare("SELECT id, total, paid_amount FROM invoices WHERE customer_id=? AND status IN ('credit','partial') ORDER BY created_at ASC");
+            $unpaid_invs->execute([$ref_id]);
+            $remaining = $amount;
+            while ($remaining > 0.001 && ($inv = $unpaid_invs->fetch())) {
+                $owed  = $inv['total'] - $inv['paid_amount'];
+                $apply = min($remaining, $owed);
+                $new_paid   = round($inv['paid_amount'] + $apply, 3);
+                $new_status = ($new_paid >= $inv['total'] - 0.001) ? 'paid' : 'partial';
+                $db->prepare("UPDATE invoices SET paid_amount=?, status=? WHERE id=?")->execute([$new_paid, $new_status, $inv['id']]);
+                $remaining -= $apply;
+            }
+        } else {
+            $db->prepare("UPDATE suppliers SET balance = balance + ? WHERE id = ?")->execute([$amount, $ref_id]);
         }
-    } else {
-        $db->prepare("UPDATE suppliers SET balance = balance + ? WHERE id = ?")->execute([$amount, $ref_id]);
+        $db->commit();
+    } catch (Exception $e) {
+        $db->rollBack();
+        header('Location: ' . BASE . '/payments.php?error=' . urlencode('Payment failed: ' . $e->getMessage()));
+        exit;
     }
     header('Location: ' . BASE . '/payments.php?success=' . urlencode('Payment of ' . fmt_money($amount) . ' recorded'));
     exit;
@@ -53,13 +66,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     $pid = (int)$_POST['payment_id'];
     $pay = $db->prepare("SELECT * FROM payments WHERE id=?"); $pay->execute([$pid]); $pay_data = $pay->fetch();
     if ($pay_data) {
-        // Reverse the balance change
-        if ($pay_data['type'] === 'customer') {
-            $db->prepare("UPDATE customers SET balance = balance - ? WHERE id = ?")->execute([$pay_data['amount'], $pay_data['reference_id']]);
-        } else {
-            $db->prepare("UPDATE suppliers SET balance = balance - ? WHERE id = ?")->execute([$pay_data['amount'], $pay_data['reference_id']]);
+        $db->beginTransaction();
+        try {
+            // Reverse the balance change
+            if ($pay_data['type'] === 'customer') {
+                $db->prepare("UPDATE customers SET balance = balance - ? WHERE id = ?")->execute([$pay_data['amount'], $pay_data['reference_id']]);
+                // Also reverse invoice settlements: reduce paid_amount on newest settled invoices first
+                $amount_to_reverse = (float)$pay_data['amount'];
+                $settled = $db->prepare("SELECT id, total, paid_amount, status FROM invoices WHERE customer_id=? AND status IN ('paid','partial') ORDER BY created_at DESC");
+                $settled->execute([$pay_data['reference_id']]);
+                while ($amount_to_reverse > 0.001 && ($inv = $settled->fetch())) {
+                    $reduce = min($amount_to_reverse, $inv['paid_amount']);
+                    $new_paid = max(0, $inv['paid_amount'] - $reduce);
+                    $new_status = ($new_paid <= 0) ? 'credit' : (($new_paid < $inv['total']) ? 'partial' : 'paid');
+                    $db->prepare("UPDATE invoices SET paid_amount=?, status=? WHERE id=?")->execute([$new_paid, $new_status, $inv['id']]);
+                    $amount_to_reverse -= $reduce;
+                }
+            } else {
+                $db->prepare("UPDATE suppliers SET balance = balance - ? WHERE id = ?")->execute([$pay_data['amount'], $pay_data['reference_id']]);
+            }
+            $db->prepare("DELETE FROM payments WHERE id=?")->execute([$pid]);
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollBack();
+            header('Location: ' . BASE . '/payments.php?error=' . urlencode('Delete failed: ' . $e->getMessage()));
+            exit;
         }
-        $db->prepare("DELETE FROM payments WHERE id=?")->execute([$pid]);
     }
     header('Location: ' . BASE . '/payments.php?success=' . urlencode('Payment deleted & balance reversed'));
     exit;
@@ -72,7 +104,7 @@ $adv_rcvd     = $db->query("SELECT COALESCE(SUM(balance),0) FROM customers WHERE
 $paid_sup     = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='supplier' AND DATE(created_at)=CURDATE()")->fetchColumn();
 
 // Due customers
-$due_customers = $db->query("SELECT * FROM customers WHERE balance < 0 ORDER BY balance ASC")->fetchAll();
+$due_customers = $db->query("SELECT *, COALESCE(company_name,'') as company_name FROM customers WHERE balance < 0 ORDER BY balance ASC")->fetchAll();
 // Due suppliers
 $due_suppliers = $db->query("SELECT * FROM suppliers WHERE balance < 0 ORDER BY balance ASC")->fetchAll();
 // Payment history with pagination
@@ -85,13 +117,21 @@ $total_pages = ceil($total_payments / $per_page);
 $history = $db->query("
     SELECT p.*, u.name as user_name,
            CASE WHEN p.type='customer' THEN (SELECT name FROM customers WHERE id=p.reference_id)
-                ELSE (SELECT company FROM suppliers WHERE id=p.reference_id) END as entity_name
+                ELSE (SELECT company FROM suppliers WHERE id=p.reference_id) END as entity_name,
+           CASE WHEN p.type='customer' THEN COALESCE((SELECT company_name FROM customers WHERE id=p.reference_id),'')
+                ELSE '' END as entity_company
     FROM payments p LEFT JOIN users u ON u.id=p.created_by
     ORDER BY p.created_at DESC LIMIT $per_page OFFSET $offset
 ")->fetchAll();
 
 require __DIR__ . '/includes/header.php';
 ?>
+
+<?php if (isset($_GET['success'])): ?>
+<div class="alert alert-success" style="margin-bottom:16px">✅ <?= htmlspecialchars($_GET['success']) ?></div>
+<?php elseif (isset($_GET['error'])): ?>
+<div class="alert alert-error" style="margin-bottom:16px">❌ <?= htmlspecialchars($_GET['error']) ?></div>
+<?php endif; ?>
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('customers-tab',this)"><?= __('nav_customers') ?></div>
@@ -125,7 +165,10 @@ require __DIR__ . '/includes/header.php';
             <td>
               <div style="display:flex;align-items:center;gap:8px">
                 <div class="ledger-avatar" style="background:rgba(239,68,68,.08);color:var(--red);font-size:11px"><?= strtoupper(substr($c['name'],0,2)) ?></div>
-                <div style="font-weight:500"><?= htmlspecialchars($c['name']) ?></div>
+                <div>
+                  <div style="font-weight:500"><?= htmlspecialchars($c['name']) ?></div>
+                  <?php if ($c['company_name']): ?><div style="font-size:11px;color:var(--accent2)">🏢 <?= htmlspecialchars($c['company_name']) ?></div><?php endif; ?>
+                </div>
               </div>
             </td>
             <td><span class="badge badge-blue"><?= ucfirst($c['type']) ?></span></td>
@@ -191,7 +234,10 @@ require __DIR__ . '/includes/header.php';
           <?php foreach ($history as $h): ?>
           <tr>
             <td class="font-mono" style="font-size:11px;color:var(--text3)"><?= date('d M Y H:i', strtotime($h['created_at'])) ?></td>
-            <td style="font-weight:500"><?= htmlspecialchars($h['entity_name'] ?? '—') ?></td>
+            <td>
+                <div style="font-weight:500"><?= htmlspecialchars($h['entity_name'] ?? '—') ?></div>
+                <?php if (!empty($h['entity_company'])): ?><div style="font-size:11px;color:var(--accent2)">🏢 <?= htmlspecialchars($h['entity_company']) ?></div><?php endif; ?>
+              </td>
             <td><span class="badge <?= $h['type']==='customer'?'badge-green':'badge-red' ?>"><?= ucfirst($h['type']) ?></span></td>
             <td class="text-green" style="font-weight:600"><?= fmt_money($h['amount']) ?></td>
             <td><?= strtoupper($h['payment_mode']) ?></td>

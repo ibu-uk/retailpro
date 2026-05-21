@@ -4,28 +4,77 @@ require_login();
 $current_page = 'pos';
 $page_title   = __('nav_pos');
 
-$db = db();
-$branch_id = current_user()['branch_id'] ?? 1;
+$db        = db();
+$user      = current_user();
+$branch_id = (int)($user['branch_id'] ?? 1);
 
-// Category emoji map
-$cat_emojis = ['Bags'=>'👜','Watches'=>'⌚','Clothes'=>'👕','Accessories'=>'💍','Shoes'=>'👟','Wallets'=>'👛'];
-$cat_bgs    = ['Bags'=>'rgba(67,97,238,0.08)','Watches'=>'rgba(59,130,246,0.08)','Clothes'=>'rgba(34,197,94,0.08)',
-                'Accessories'=>'rgba(236,72,153,0.08)','Shoes'=>'rgba(20,184,166,0.08)','Wallets'=>'rgba(245,158,11,0.08)'];
+// ── Branch category filter ──
+// super_admin always sees everything regardless of branch assignment
+$is_super = ($user['role'] === 'super_admin');
+
+if ($is_super) {
+    $cat_filter = ""; // no filter — sees all products
+} else {
+    try {
+        $has_bc = $db->query("SELECT COUNT(*) FROM branch_categories WHERE branch_id = $branch_id")->fetchColumn();
+        if ($has_bc > 0) {
+            $cat_filter = "AND p.category_id IN (SELECT category_id FROM branch_categories WHERE branch_id = $branch_id)";
+        } else {
+            // Branch has no category assignments yet — show ALL products (safe fallback)
+            $cat_filter = "";
+        }
+    } catch (Exception $e) {
+        // Table doesn't exist yet — show all
+        $cat_filter = "";
+    }
+}
 
 $products = $db->query("
-  SELECT p.id, p.name, p.name_ar, p.emoji, p.sku, p.barcode, p.category_id, c.name as category, c.name_ar as category_ar, c.emoji as cat_emoji,
-         p.sub_category_id, sc.name as sub_category, sc.emoji as sub_cat_emoji,
-         p.retail_price, p.wholesale_price, COALESCE(s.qty,0) as stock
-  FROM products p
-  LEFT JOIN categories c ON c.id = p.category_id
-  LEFT JOIN categories sc ON sc.id = p.sub_category_id
-  LEFT JOIN stock s ON s.product_id = p.id AND s.branch_id = $branch_id
-  WHERE p.is_active = 1
-  ORDER BY c.name, sc.name, p.name
+    SELECT p.id, p.name, COALESCE(p.name_ar,'') as name_ar,
+           COALESCE(p.emoji,'📦') as emoji,
+           p.sku, COALESCE(p.barcode,'') as barcode,
+           p.category_id,
+           COALESCE(c.name,'') as category,
+           COALESCE(c.name_ar,'') as category_ar,
+           COALESCE(c.emoji,'📦') as cat_emoji,
+           p.sub_category_id,
+           COALESCE(sc.name,'') as sub_category,
+           COALESCE(sc.emoji,'') as sub_cat_emoji,
+           p.retail_price, p.wholesale_price,
+           COALESCE(s.qty,0) as stock
+    FROM products p
+    LEFT JOIN categories c  ON c.id = p.category_id
+    LEFT JOIN categories sc ON sc.id = p.sub_category_id
+    LEFT JOIN stock s ON s.product_id = p.id AND s.branch_id = $branch_id
+    WHERE p.is_active = 1
+    $cat_filter
+    ORDER BY c.name, sc.name, p.name
 ")->fetchAll();
 
-$categories = $db->query("SELECT DISTINCT name, name_ar FROM categories ORDER BY name")->fetchAll();
-$customers  = $db->query("SELECT id, name, phone, type, balance FROM customers WHERE is_active=1 ORDER BY id ASC")->fetchAll();
+// Load categories — super_admin sees all, others see branch-assigned only
+if ($is_super) {
+    $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar, COALESCE(emoji,'📦') as emoji
+                               FROM categories WHERE COALESCE(is_active,1)=1 ORDER BY name")->fetchAll();
+} else {
+    try {
+        $has_bc2 = $db->query("SELECT COUNT(*) FROM branch_categories WHERE branch_id = $branch_id")->fetchColumn();
+        if ($has_bc2 > 0) {
+            $categories = $db->query("SELECT c.id, c.name, COALESCE(c.name_ar,'') as name_ar, COALESCE(c.emoji,'📦') as emoji
+                                       FROM categories c
+                                       INNER JOIN branch_categories bc ON bc.category_id = c.id
+                                       WHERE bc.branch_id = $branch_id
+                                       AND COALESCE(c.is_active,1) = 1
+                                       ORDER BY c.name")->fetchAll();
+        } else {
+            // No assignments — show all categories
+            $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar, COALESCE(emoji,'📦') as emoji
+                                       FROM categories WHERE COALESCE(is_active,1)=1 ORDER BY name")->fetchAll();
+        }
+    } catch (Exception $e) {
+        $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar FROM categories ORDER BY name")->fetchAll();
+    }
+}
+$customers  = $db->query("SELECT id, name, COALESCE(company_name,'') as company_name, phone, type, balance FROM customers WHERE is_active=1 ORDER BY id ASC")->fetchAll();
 $currency = get_setting('currency', 'KWD');
 if (!$currency || $currency === '0') $currency = 'KWD';
 
@@ -80,15 +129,26 @@ require __DIR__ . '/includes/header.php';
 .walkin-label .walkin-icon{width:28px;height:28px;border-radius:50%;background:rgba(34,197,94,.1);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .walkin-label .walkin-text{flex:1;font-weight:500;color:var(--text)}
 .walkin-label .walkin-badge{font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(34,197,94,.1);color:var(--green2);font-weight:500}
+/* Mobile POS tab switcher */
+.pos-mobile-tabs{display:none;background:var(--bg2);border-bottom:1px solid var(--border);margin:-24px -24px 14px}
+.pos-mtab{flex:1;padding:12px 8px;font-size:13px;font-weight:600;text-align:center;cursor:pointer;border:none;background:transparent;color:var(--text3);border-bottom:3px solid transparent;transition:all var(--transition)}
+.pos-mtab.active{color:var(--accent2);border-bottom-color:var(--accent);background:rgba(124,110,255,.05)}
+@media(max-width:900px){.pos-mobile-tabs{display:flex}}
+@media(max-width:900px){.pos-products.hidden-mobile{display:none!important}.pos-cart.hidden-mobile{display:none!important}}
 </style>
 
+<!-- MOBILE POS TABS -->
+<div class="pos-mobile-tabs" id="pos-mobile-tabs">
+  <button class="pos-mtab active" id="mtab-products" onclick="showPosPanel('products')">🛍 Products</button>
+  <button class="pos-mtab" id="mtab-cart" onclick="showPosPanel('cart')">🛒 Cart <span id="mtab-cart-count" style="background:var(--accent);color:#fff;padding:1px 6px;border-radius:99px;font-size:10px;margin-left:4px">0</span></button>
+</div>
 <div class="pos-layout">
   <!-- PRODUCT PANEL -->
   <div class="pos-products">
     <!-- BARCODE SCANNER -->
     <div class="barcode-bar" id="barcode-bar">
       <span class="barcode-icon">📷</span>
-      <input class="barcode-input" id="barcode-input" placeholder="<?= __('scan_barcode') ?>" autocomplete="off" autofocus>
+      <input class="barcode-input" id="barcode-input" placeholder="<?= __('scan_barcode') ?>" autocomplete="off" autofocus dir="ltr" style="unicode-bidi:embed">
       <div class="barcode-status"><span class="pulse"></span> <?= __('scan_barcode') ?></div>
     </div>
 
@@ -118,7 +178,7 @@ require __DIR__ . '/includes/header.php';
       <div class="customer-tabs">
         <div class="cust-tab active" data-tab="walkin" onclick="selectCustomerTab(this)">🚶 <?= __('walk_in') ?></div>
         <div class="cust-tab" data-tab="saved" onclick="selectCustomerTab(this)">👤 <?= __('select_customer') ?></div>
-        <div class="cust-tab" data-tab="new" onclick="openModal('quick-customer-modal')">+ <?= __('add') ?></div>
+        <div class="cust-tab" data-tab="new" onclick="openQuickAddModal()">+ <?= __('add') ?></div>
       </div>
       <!-- Walk-in display -->
       <div id="walkin-display" class="walkin-label">
@@ -152,14 +212,14 @@ require __DIR__ . '/includes/header.php';
           <div class="cart-row" style="color:var(--green);font-size:11px"><span id="promo-label">🎯 <?= __('offer_applied') ?></span><span id="promo-amount">- 0.000</span></div>
         </div>
         <div style="display:flex;gap:4px;margin:6px 0">
-          <input type="text" id="promo-code-input" placeholder="<?= __('promo_code') ?>" style="flex:1;padding:4px 8px;font-size:11px;border:1px solid var(--border2);border-radius:4px;background:var(--bg2);color:var(--text);text-transform:uppercase">
+          <input type="text" id="promo-code-input" placeholder="<?= __('promo_code') ?>" dir="ltr" style="flex:1;padding:4px 8px;font-size:11px;border:1px solid var(--border2);border-radius:4px;background:var(--bg2);color:var(--text);text-transform:uppercase">
           <button type="button" class="btn btn-ghost btn-sm" onclick="applyPromoCode()" style="font-size:10px;padding:4px 8px"><?= __('apply') ?></button>
         </div>
         <div class="cart-row"><span><?= __('extra_disc') ?></span>
           <div style="display:flex;gap:4px;align-items:center">
             <button type="button" class="btn btn-ghost btn-sm" id="disc-type-pct" onclick="setDiscType('pct')" style="padding:2px 8px;font-size:10px;border:1px solid var(--accent);background:rgba(67,97,238,.1);color:var(--accent)">%</button>
             <button type="button" class="btn btn-ghost btn-sm" id="disc-type-fixed" onclick="setDiscType('fixed')" style="padding:2px 8px;font-size:10px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3)"><?= $currency ?></button>
-            <input type="number" id="discount-value" value="0" min="0" max="100" style="width:50px;background:var(--bg4);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 4px;font-size:11px" onchange="recalc()">
+            <input type="number" id="discount-value" value="0" min="0" max="100" dir="ltr" style="width:50px;background:var(--bg4);border:1px solid var(--border2);border-radius:4px;color:var(--text);padding:2px 4px;font-size:11px" onchange="recalc()">
           </div>
           <span id="cart-discount" style="color:var(--red)">- 0.000</span>
         </div>
@@ -176,7 +236,7 @@ require __DIR__ . '/includes/header.php';
       </div>
       <div id="partial-pay-box" style="display:none;margin-bottom:8px">
         <label style="font-size:11px;color:var(--text3);margin-bottom:4px;display:block"><?= __('amount_paid_now') ?> (<?= $currency ?>)</label>
-        <input type="number" class="form-input" id="partial-amount" step="0.001" min="0.001" placeholder="0.000" style="font-size:14px;font-weight:600">
+        <input type="number" class="form-input" id="partial-amount" step="0.001" min="0.001" dir="ltr" placeholder="0.000" style="font-size:14px;font-weight:600">
         <div style="font-size:11px;color:var(--amber);margin-top:4px"><?= __('remaining_credit') ?></div>
       </div>
       <button class="btn btn-green w-full" onclick="processSale()">✓ <?= __('charge') ?></button>
@@ -203,7 +263,12 @@ require __DIR__ . '/includes/header.php';
             </select>
           </div>
         </div>
-        <div class="form-group"><label class="form-label"><?= __('credit_limit') ?> (<?= $currency ?>)</label><input class="form-input" id="qc-credit" type="number" step="0.001" min="0" value="0"></div>
+        <div class="form-group" id="qc-credit-row">
+          <label class="form-label"><?= __('credit_limit') ?> (<?= $currency ?>)
+            <span style="font-size:10px;color:var(--text3);font-weight:400"> — max credit allowed for deferred payments</span>
+          </label>
+          <input class="form-input" id="qc-credit" type="number" step="0.001" min="0" value="0" dir="ltr">
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('quick-customer-modal')"><?= __('cancel') ?></button>
@@ -214,11 +279,12 @@ require __DIR__ . '/includes/header.php';
 </div>
 
 <?php
-$extra_js = '<script>
-const PRODUCTS = ' . json_encode(array_map(function($p) use ($cat_emojis, $cat_bgs) {
+// Build data arrays safely — output directly, NOT inside single-quoted string
+$products_data = array_map(function($p) {
     return [
         'id'        => (int)$p['id'],
         'name'      => $p['name'],
+        'name_ar'   => $p['name_ar'] ?? '',
         'sku'       => $p['sku'],
         'cat'       => $p['category'],
         'subcat'    => $p['sub_category'] ?? '',
@@ -226,61 +292,70 @@ const PRODUCTS = ' . json_encode(array_map(function($p) use ($cat_emojis, $cat_b
         'price'     => (float)$p['retail_price'],
         'wholesale' => (float)$p['wholesale_price'],
         'stock'     => (int)$p['stock'],
-        'emoji'     => $p['emoji'] ?? ($p['sub_cat_emoji'] ?? ($cat_emojis[$p['category']] ?? '📦')),
-        'bg'        => $cat_bgs[$p['category']] ?? 'rgba(67,97,238,0.08)',
+        'emoji'     => $p['emoji'] ?: ($p['sub_cat_emoji'] ?: ($p['cat_emoji'] ?: '📦')),
+        'bg'        => 'rgba(67,97,238,0.08)',
+        'barcode'   => $p['barcode'] ?? '',
     ];
-}, $products)) . ';
+}, $products);
 
-const OFFERS = ' . json_encode(array_map(function($o) {
+$offers_data = array_map(function($o) {
     return [
-        'id'        => (int)$o['id'],
-        'title'     => $o['title'],
-        'type'      => $o['type'],
-        'value'     => (float)$o['discount_value'],
-        'code'      => $o['promo_code'] ?? '',
-        'applies'   => $o['applies_to'],
+        'id'      => (int)$o['id'],
+        'title'   => $o['title'],
+        'type'    => $o['type'],
+        'value'   => (float)$o['discount_value'],
+        'code'    => $o['promo_code'] ?? '',
+        'applies' => $o['applies_to'],
     ];
-}, $active_offers)) . ';
+}, $active_offers);
 
-const CUSTOMERS = ' . json_encode(array_map(function($c) {
+$customers_data = array_map(function($c) {
     return [
         'id'      => (int)$c['id'],
         'name'    => $c['name'],
+        'company' => $c['company_name'] ?? '',
         'phone'   => $c['phone'] ?? '',
         'type'    => $c['type'],
         'balance' => (float)$c['balance'],
     ];
-}, $customers)) . ';
+}, $customers);
 
-const LANG = ' . json_encode([
-    'items' => __('items'),
-    'no_phone' => __('no_phone'),
-    'change' => __('change'),
-    'customer_selected' => __('customer_selected'),
-    'selected' => __('selected'),
-    'in_stock' => __('in_stock'),
-    'no_customers' => __('no_customers'),
-    'no_data' => __('no_data'),
-    'promo_applied' => __('promo_applied'),
-    'promo_not_found' => __('promo_not_found'),
-    'no_match_promo' => __('no_match_promo'),
-    'enter_promo' => __('enter_promo'),
+ob_start(); ?>
+<script>
+const PRODUCTS  = <?= json_encode($products_data,  JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP) ?>;
+const OFFERS    = <?= json_encode($offers_data,     JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP) ?>;
+const CUSTOMERS = <?= json_encode($customers_data,  JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP) ?>;
+const LANG      = <?= json_encode([
+    'items'                  => __('items'),
+    'no_phone'               => __('no_phone'),
+    'change'                 => __('change'),
+    'customer_selected'      => __('customer_selected'),
+    'selected'               => __('selected'),
+    'in_stock'               => __('in_stock'),
+    'no_customers'           => __('no_customers'),
+    'no_data'                => __('no_data'),
+    'promo_applied'          => __('promo_applied'),
+    'promo_not_found'        => __('promo_not_found'),
+    'no_match_promo'         => __('no_match_promo'),
+    'enter_promo'            => __('enter_promo'),
     'select_customer_credit' => __('select_customer_credit'),
-    'network_error' => __('network_error'),
-    'sale_failed' => __('sale_failed'),
-    'sale_complete' => __('sale_complete'),
-    'invoice' => __('invoice'),
-    'error' => __('error'),
-    'warning' => __('warning'),
-    'success' => __('success'),
-    'added' => __('add'),
-    'out_of_stock' => __('out_of_stock'),
-    'customer_added' => __('customer_added'),
-    'name_required' => __('full_name'),
-    'no_products' => __('no_data'),
-    'empty_cart' => __('add_products_start'),
-    'hold_msg' => __('hold'),
-]) . ';
+    'network_error'          => __('network_error'),
+    'sale_failed'            => __('sale_failed'),
+    'sale_complete'          => __('sale_complete'),
+    'invoice'                => __('invoice'),
+    'error'                  => __('error'),
+    'warning'                => __('warning'),
+    'success'                => __('success'),
+    'added'                  => __('add'),
+    'out_of_stock'           => __('out_of_stock'),
+    'customer_added'         => __('customer_added'),
+    'name_required'          => __('full_name'),
+    'no_products'            => __('no_data'),
+    'empty_cart'             => __('add_products_start'),
+    'hold_msg'               => __('hold'),
+], JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP) ?>;
+const CURRENCY = "<?= $currency ?>";
+const BASE_URL = "<?= BASE ?>";
 
 let cart = [];
 let selectedPayMode = "cash";
@@ -353,7 +428,7 @@ function selectCustomerTab(el) {
 
 function filterCustomers(q) {
   q = q.toLowerCase();
-  const filtered = CUSTOMERS.filter(c => c.id !== 1 && (c.name.toLowerCase().includes(q) || c.phone.includes(q)));
+  const filtered = CUSTOMERS.filter(c => c.id !== 1 && (c.name.toLowerCase().includes(q) || (c.company && c.company.toLowerCase().includes(q)) || c.phone.includes(q)));
   renderCustomerList(filtered);
   document.getElementById("cust-dropdown").classList.add("open");
 }
@@ -361,7 +436,7 @@ function filterCustomers(q) {
 function renderCustomerList(list) {
   const dd = document.getElementById("cust-dropdown");
   if (!list.length) {
-    dd.innerHTML = "<div style=\"padding:12px;text-align:center;font-size:12px;color:var(--text3)\">" + LANG.no_customers + "</div>";
+    dd.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:var(--text3)">' + LANG.no_customers + '</div>';
     return;
   }
   dd.innerHTML = list.map(c => {
@@ -373,7 +448,7 @@ function renderCustomerList(list) {
     return `<div class="cust-option" onclick="pickCustomer(${c.id})">
       <div class="cust-av" style="background:${bgColor};color:${txtColor}">${initials}</div>
       <div class="cust-det">
-        <div class="cust-nm">${c.name}</div>
+        <div class="cust-nm">${c.name}${c.company ? '<span style="font-size:10px;color:var(--accent2);margin-left:4px">🏢 '+c.company+'</span>' : ''}</div>
         <div class="cust-ph">${c.phone || LANG.no_phone}</div>
       </div>
       <span class="cust-tp" style="background:${tpBg};color:${txtColor}">${c.type}</span>
@@ -407,7 +482,7 @@ function pickCustomer(id) {
     <div class="cust-av" style="background:${bgColor};color:${txtColor}">${initials}</div>
     <div class="cust-info">
       <div style="font-weight:500">${c.name}</div>
-      <div style="font-size:10px;color:var(--text3)">${c.phone || LANG.no_phone} · ${c.type} · Bal: <span style="color:${balColor};font-weight:600">${c.balance < 0 ? "-" : ""}<?= $currency ?> ${Math.abs(c.balance).toFixed(3)}</span></div>
+      <div style="font-size:10px;color:var(--text3)">${c.company ? '🏢 '+c.company+' · ' : ''}${c.phone || LANG.no_phone} · ${c.type} · Bal: <span style="color:${balColor};font-weight:600">${c.balance < 0 ? "-" : ""}<?= $currency ?> ${Math.abs(c.balance).toFixed(3)}</span></div>
     </div>
     <span class="cust-change" onclick="changeCustomer()">${LANG.change}</span>
   </div>`;
@@ -432,6 +507,8 @@ function updatePriceMode(type) {
     if (p) item.price = type === "wholesale" ? p.wholesale : p.price;
   });
   renderCart();
+  // Also re-render product grid so card prices reflect the customer type
+  filterProducts(document.getElementById("pos-search").value);
 }
 
 // Close dropdown on outside click
@@ -460,11 +537,21 @@ function quickAddCustomer(e) {
   formData.append("credit_limit",credit);
   formData.append("address","");
 
-  fetch("<?= BASE ?>/customers.php", {method:"POST", body: formData})
-    .then(() => {
-      showToast(LANG.success, LANG.customer_added + ". " + name, "success");
-      closeModal("quick-customer-modal");
-      setTimeout(() => location.reload(), 800);
+  // POST to customers.php then fetch the new customer ID via a quick lookup
+  fetch(BASE_URL + "/api/quick_add_customer.php", {method:"POST", body: formData})
+    .then(r => r.json())
+    .then(data => {
+      if (data.success && data.customer) {
+        // Inject new customer into local CUSTOMERS array — no page reload needed
+        CUSTOMERS.push(data.customer);
+        showToast(LANG.success, LANG.customer_added + ": " + name, "success");
+        closeModal("quick-customer-modal");
+        // Auto-select the new customer
+        document.querySelector(".cust-tab[data-tab=saved]").click();
+        setTimeout(() => pickCustomer(data.customer.id), 300);
+      } else {
+        showToast(LANG.error, data.error || LANG.network_error, "error");
+      }
     })
     .catch(() => showToast(LANG.error, LANG.network_error, "error"));
 
@@ -474,16 +561,24 @@ function quickAddCustomer(e) {
 // ── PRODUCT GRID ──
 function renderProductGrid(prods) {
   const grid = document.getElementById("product-grid");
-  if (!prods.length) { grid.innerHTML = "<div style=\"padding:40px;text-align:center;color:var(--text3)\">" + LANG.no_products + "</div>"; return; }
-  grid.innerHTML = prods.map(p => `
-    <div class="product-card" onclick="addToCart(${p.id})">
-      <div class="product-img" style="background:${p.bg}">${p.emoji}</div>
-      <div class="product-name">${p.name}${p.name_ar ? \'<span style="font-size:11px;color:var(--text3);display:block">\'+p.name_ar+\'</span>\' : \'\'}</div>
-      <div class="product-sku">${p.sku}</div>
-      <div class="product-price"><?= $currency ?> ${p.price.toFixed(3)}</div>
-      <div class="product-stock" style="color:${p.stock<=5?"var(--red)":p.stock<=10?"var(--amber)":"var(--text3)"}">${p.stock} ${LANG.in_stock}${p.stock<=5?" ⚠️":""}</div>
-    </div>
-  `).join("");
+  if (!prods.length) { grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">' + LANG.no_products + '</div>'; return; }
+  const currentCust = CUSTOMERS.find(c => c.id === selectedCustomerId);
+  const isWholesale = currentCust && currentCust.type === "wholesale";
+  grid.innerHTML = prods.map(p => {
+    const displayPrice = isWholesale ? p.wholesale : p.price;
+    const priceColor   = isWholesale ? "var(--accent2)" : "var(--green)";
+    const priceTag     = isWholesale ? " <span style=\"font-size:9px;opacity:.7\">W</span>" : "";
+    const stockColor   = p.stock<=5 ? "var(--red)" : (p.stock<=10 ? "var(--amber)" : "var(--text3)");
+    const arName       = p.name_ar ? '<span style="font-size:11px;color:var(--text3);display:block">'+p.name_ar+'</span>' : '';
+    const warn         = p.stock<=5 ? " ⚠️" : "";
+    return '<div class="product-card" onclick="addToCart('+p.id+')">'
+      + '<div class="product-img" style="background:'+p.bg+'">'+p.emoji+'</div>'
+      + '<div class="product-name">'+p.name+arName+'</div>'
+      + '<div class="product-sku">'+p.sku+'</div>'
+      + '<div class="product-price" style="color:'+priceColor+'"><?= $currency ?> '+displayPrice.toFixed(3)+priceTag+'</div>'
+      + '<div class="product-stock" style="color:'+stockColor+'">'+p.stock+' '+LANG.in_stock+warn+'</div>'
+      + '</div>';
+  }).join("");
 }
 
 function filterProducts(query) {
@@ -510,6 +605,8 @@ function addToCart(id) {
   }
   renderCart();
   showToast(LANG.added, p.name, "success");
+  // On mobile: briefly flash product added then auto-switch to cart after 2s
+  // (user can manually switch earlier)
 }
 
 function changeQty(id, d) {
@@ -611,38 +708,59 @@ function applyPromoCode() {
 }
 
 function renderCart() {
-  const container = document.getElementById("cart-items");
-  const empty     = document.getElementById("cart-empty");
-  if (!cart.length) { container.innerHTML = ""; container.appendChild(empty||document.createElement("div")); empty&&(empty.style.display="block"); recalc(); return; }
-  empty && (empty.style.display = "none");
-  let html = "";
-  cart.forEach(item => {
-    const lineTotal = item.price * item.qty;
-    const lineDisc  = lineTotal * (item.disc / 100);
-    const lineNet   = lineTotal - lineDisc;
-    html += `<div class="cart-item">
-      <div class="cart-item-emoji">${item.emoji}</div>
-      <div class="cart-item-info">
-        <div class="cart-item-name">${item.name}${item.name_ar ? \'<span style="font-size:11px;color:var(--text3);display:block">\'+item.name_ar+\'</span>\' : \'\'}</div>
-        <div class="cart-item-price"><?= $currency ?> ${item.price.toFixed(3)} × ${item.qty}${item.disc > 0 ? \' <span style="color:var(--red)">-\'+item.disc+\'%</span>\' : \'\'}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <div class="cart-item-controls">
-          <button class="qty-btn" onclick="changeQty(${item.id},-1)">−</button>
-          <div class="qty-num">${item.qty}</div>
-          <button class="qty-btn" onclick="changeQty(${item.id},1)">+</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:3px">
-          <input type="number" min="0" max="100" value="${item.disc}" onchange="setItemDisc(${item.id},this.value)" style="width:36px;padding:2px 4px;font-size:10px;border:1px solid var(--border2);border-radius:4px;text-align:center;background:var(--bg2);color:var(--text)">
-          <span style="font-size:10px;color:var(--text3)">%</span>
-          <span style="font-size:11px;font-weight:600;color:${item.disc>0?\'var(--green2)\':\'var(--text2)\'};min-width:52px;text-align:right">${lineNet.toFixed(3)}</span>
-        </div>
-      </div>
-    </div>`;
+  var container = document.getElementById('cart-items');
+  var empty     = document.getElementById('cart-empty');
+  if (!cart.length) {
+    container.innerHTML = '';
+    if (empty) { container.appendChild(empty); empty.style.display = 'block'; }
+    recalc();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  var html = '';
+  cart.forEach(function(item) {
+    var lineTotal = item.price * item.qty;
+    var lineDisc  = lineTotal * (item.disc / 100);
+    var lineNet   = lineTotal - lineDisc;
+    var netColor  = item.disc > 0 ? '#16a34a' : 'var(--text)';
+    var arSpan    = item.name_ar ? '<div style="font-size:10px;color:var(--text3);direction:rtl">' + item.name_ar + '</div>' : '';
+    var discSpan  = item.disc > 0 ? '<span style="font-size:10px;color:#ef4444">-' + lineDisc.toFixed(3) + '</span>' : '';
+    html += '<div class="cart-item" style="position:relative">';
+    html +=   '<div style="font-size:20px;flex-shrink:0">' + item.emoji + '</div>';
+    html +=   '<div style="flex:1;min-width:0">';
+    html +=     '<div style="font-size:12px;font-weight:600">' + item.name + arSpan + '</div>';
+    html +=     '<div style="display:flex;align-items:center;gap:4px;margin-top:3px">';
+    html +=       '<button class="qty-btn" onclick="changeQty(' + item.id + ',-1)" style="width:22px;height:22px">-</button>';
+    html +=       '<span style="font-size:12px;font-weight:700;min-width:20px;text-align:center">' + item.qty + '</span>';
+    html +=       '<button class="qty-btn" onclick="changeQty(' + item.id + ',1)" style="width:22px;height:22px">+</button>';
+    html +=       '<span style="font-size:10px;color:var(--text3)"> x ' + item.price.toFixed(3) + '</span>';
+    html +=     '</div>';
+    html +=     '<div style="display:flex;align-items:center;gap:4px;margin-top:3px">';
+    html +=       '<span style="font-size:10px;color:var(--text3)">Disc%:</span>';
+    html +=       '<input type="number" min="0" max="100" value="' + item.disc + '"';
+    html +=         ' onchange="setItemDisc(' + item.id + ',this.value)"';
+    html +=         ' style="width:38px;padding:2px 4px;font-size:11px;border:1px solid var(--border2);border-radius:4px;text-align:center">';
+    html +=       '<span style="font-size:10px;color:var(--text3)">%</span>' + discSpan;
+    html +=     '</div>';
+    html +=   '</div>';
+    html +=   '<div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;gap:6px;flex-shrink:0">';
+    html +=     '<button onclick="removeFromCart(' + item.id + ')"';
+    html +=       ' style="width:18px;height:18px;border-radius:50%;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center"';
+    html +=       ' onmouseover="this.style.background=\'#ef4444\';this.style.color=\'#fff\'"';
+    html +=       ' onmouseout="this.style.background=\'var(--bg3)\';this.style.color=\'var(--text3)\'">x</button>';
+    html +=     '<span style="font-size:13px;font-weight:700;color:' + netColor + '">' + lineNet.toFixed(3) + '</span>';
+    html +=   '</div>';
+    html += '</div>';
   });
   container.innerHTML = html;
   recalc();
 }
+
+function removeFromCart(id) {
+  cart = cart.filter(function(i) { return i.id !== id; });
+  renderCart();
+}
+
 
 function setItemDisc(id, val) {
   const item = cart.find(i => i.id === id);
@@ -696,26 +814,26 @@ function processSale() {
   const customerId = document.getElementById("cart-customer").value;
   if (selectedPayMode === "partial") {
     const partialAmt = parseFloat(document.getElementById("partial-amount").value)||0;
-    if (partialAmt <= 0) { showToast(LANG.error, LANG.error, "warning"); return; }
+    if (partialAmt <= 0) { showToast(LANG.error, "Enter the amount paid now.", "warning"); return; }
     if (customerId == 1) { showToast(LANG.error, LANG.select_customer_credit, "warning"); return; }
   }
   if (selectedPayMode === "credit" && customerId == 1) { showToast(LANG.error, LANG.select_customer_credit, "warning"); return; }
   const paidAmount = selectedPayMode === "partial" ? parseFloat(document.getElementById("partial-amount").value)||0 : null;
   const payload = { cart, payment_mode: selectedPayMode, discount_type: discountType, discount_value: discValue, customer_id: customerId, offer_id: appliedPromo ? appliedPromo.id : null, promo_discount: promoDiscount, paid_amount: paidAmount };
 
-  fetch("' . BASE . '/api/sale.php", {
+  fetch(BASE_URL + "/api/sale.php", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   }).then(r=>r.json()).then(data => {
     if (data.success) {
-      showToast(LANG.sale_complete, LANG.invoice + " " + data.invoice_number + " — <?= $currency ?> " + data.total, "success");
+      showToast(LANG.sale_complete, LANG.invoice + " " + data.invoice_number + " — " + CURRENCY + " " + data.total, "success");
       clearCart();
       // Reset to walk-in
       document.querySelector(".cust-tab[data-tab=walkin]").click();
       // Open invoice for printing
       if (data.invoice_id) {
-        window.open("' . BASE . '/invoice.php?id=" + data.invoice_id + "&print=1", "_blank");
+        window.open(BASE_URL + "/invoice.php?id=" + data.invoice_id + "&print=1", "_blank");
       }
     } else {
       showToast(LANG.error, data.error || LANG.sale_failed, "error");
@@ -723,9 +841,53 @@ function processSale() {
   }).catch(() => showToast(LANG.error, LANG.network_error, "error"));
 }
 
+function openQuickAddModal() {
+  // Reset form cleanly each time
+  document.getElementById("quick-cust-form").reset();
+  document.getElementById("qc-credit").value = "0";
+  openModal("quick-customer-modal");
+}
+// Show/hide credit limit hint based on type selection
+document.addEventListener("change", function(e) {
+  if (e.target && e.target.id === "qc-type") {
+    const row = document.getElementById("qc-credit-row");
+    if (row) {
+      row.style.opacity = e.target.value === "wholesale" ? "1" : "0.5";
+    }
+  }
+});
+
 renderProductGrid(PRODUCTS);
 // Initialize discount type on page load
 setTimeout(() => setDiscType("pct"), 100);
-</script>';
+
+// ── MOBILE POS PANEL SWITCHER ──
+function showPosPanel(panel) {
+  const products = document.querySelector(".pos-products");
+  const cart     = document.querySelector(".pos-cart");
+  const btnP     = document.getElementById("mtab-products");
+  const btnC     = document.getElementById("mtab-cart");
+  if (panel === "products") {
+    products.classList.remove("hidden-mobile");
+    cart.classList.add("hidden-mobile");
+    btnP.classList.add("active");
+    btnC.classList.remove("active");
+  } else {
+    cart.classList.remove("hidden-mobile");
+    products.classList.add("hidden-mobile");
+    btnC.classList.add("active");
+    btnP.classList.remove("active");
+  }
+}
+// Update mobile cart badge count on every recalc
+const _origRecalc = recalc;
+recalc = function() {
+  _origRecalc();
+  const badge = document.getElementById("mtab-cart-count");
+  if (badge) badge.textContent = cart.reduce((a,i)=>a+i.qty,0);
+};
+</script>
+<?php
+$extra_js = ob_get_clean();
 require __DIR__ . '/includes/footer.php';
 ?>

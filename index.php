@@ -6,24 +6,33 @@ $page_title   = __('nav_dashboard');
 
 $db = db();
 
-// KPIs
-$today_sales  = $db->query("SELECT COALESCE(SUM(total),0) as s FROM invoices WHERE DATE(created_at)=CURDATE()")->fetch()['s'];
-$month_sales  = $db->query("SELECT COALESCE(SUM(total),0) as s FROM invoices WHERE MONTH(created_at)=MONTH(NOW()) AND YEAR(created_at)=YEAR(NOW())")->fetch()['s'];
-$pending_dues = $db->query("SELECT COALESCE(SUM(ABS(balance)),0) as s FROM customers WHERE balance < 0")->fetch()['s'];
+// ── KPIs ──
+// FIX: Exclude refunded invoices from all revenue/sales figures
+$today_sales  = $db->query("SELECT COALESCE(SUM(total),0) as s FROM invoices WHERE DATE(created_at)=CURDATE() AND status != 'refunded'")->fetch()['s'];
+$month_sales  = $db->query("SELECT COALESCE(SUM(total),0) as s FROM invoices WHERE MONTH(created_at)=MONTH(NOW()) AND YEAR(created_at)=YEAR(NOW()) AND status != 'refunded'")->fetch()['s'];
+// FIX: Customer pending dues — exclude walk-in (id=1), only active customers
+$pending_dues = $db->query("SELECT COALESCE(SUM(ABS(balance)),0) as s FROM customers WHERE balance < 0 AND id > 1")->fetch()['s'];
 $supplier_due = $db->query("SELECT COALESCE(SUM(ABS(balance)),0) as s FROM suppliers WHERE balance < 0")->fetch()['s'];
 $total_prods  = $db->query("SELECT COUNT(*) as c FROM products WHERE is_active=1")->fetch()['c'];
-$orders_today = $db->query("SELECT COUNT(*) as c FROM invoices WHERE DATE(created_at)=CURDATE()")->fetch()['c'];
-$active_custs = $db->query("SELECT COUNT(*) as c FROM customers WHERE is_active=1 AND id>1")->fetch()['c'];
-$low_stock    = $db->query("SELECT COUNT(*) as c FROM stock WHERE qty <= 5 AND qty >= 0")->fetch()['c'];
+// FIX: orders_today excludes refunded
+$orders_today = $db->query("SELECT COUNT(*) as c FROM invoices WHERE DATE(created_at)=CURDATE() AND status != 'refunded'")->fetch()['c'];
+// FIX: active customers — exclude walk-in AND inactive
+$active_custs = $db->query("SELECT COUNT(*) as c FROM customers WHERE is_active=1 AND id > 1")->fetch()['c'];
+// FIX: low_stock — count DISTINCT products by SUM of qty across all branches, not raw stock rows
+// Raw count was wrong: a product in 3 branches counted as 3 items even if total qty is fine
+// Count products with qty <= 5 (includes 0 and negative — all are problems)
+$low_stock    = $db->query("SELECT COUNT(*) as c FROM (SELECT product_id, SUM(qty) as total_qty FROM stock GROUP BY product_id HAVING total_qty <= 5) as ls")->fetch()['c'];
+// FIX: credit_total — exclude refunded, use MAX(0,...) to avoid negative outstanding
 $credit_count = $db->query("SELECT COUNT(*) as c FROM invoices WHERE status='credit'")->fetch()['c'];
 $partial_count= $db->query("SELECT COUNT(*) as c FROM invoices WHERE status='partial'")->fetch()['c'];
-$credit_total = $db->query("SELECT COALESCE(SUM(total - paid_amount),0) as s FROM invoices WHERE status IN ('credit','partial')")->fetch()['s'];
+$credit_total = $db->query("SELECT COALESCE(SUM(GREATEST(0, total - paid_amount)),0) as s FROM invoices WHERE status IN ('credit','partial')")->fetch()['s'];
 
 // Weekly sales (last 7 days)
 $weekly = $db->query("
   SELECT DATE(created_at) as d, SUM(total) as s
   FROM invoices
   WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+  AND status != 'refunded'
   GROUP BY DATE(created_at)
   ORDER BY d
 ")->fetchAll();
@@ -38,40 +47,82 @@ $max_sales = max(array_column($week_days, 'sales')) ?: 1;
 
 // Branch performance
 $branch_sales = $db->query("
-  SELECT b.name, COALESCE(SUM(i.total),0) as s
+  SELECT b.name, b.id,
+         COALESCE(SUM(CASE WHEN DATE(i.created_at)=CURDATE() AND i.status != 'refunded' THEN i.total ELSE 0 END),0) as s,
+         COUNT(CASE WHEN DATE(i.created_at)=CURDATE() AND i.status != 'refunded' THEN 1 END) as orders
   FROM branches b
-  LEFT JOIN invoices i ON i.branch_id = b.id AND DATE(i.created_at)=CURDATE()
+  LEFT JOIN invoices i ON i.branch_id = b.id
   WHERE b.is_active=1
-  GROUP BY b.id ORDER BY s DESC
+  GROUP BY b.id, b.name ORDER BY s DESC
 ")->fetchAll();
 $max_branch = !empty($branch_sales) ? (max(array_column($branch_sales, 's')) ?: 1) : 1;
 
-// Best sellers
-$best_sellers = $db->query("
-  SELECT p.name, p.sku, SUM(ii.qty) as qty_sold, SUM(ii.total) as revenue
-  FROM invoice_items ii
-  JOIN products p ON p.id = ii.product_id
-  JOIN invoices inv ON inv.id = ii.invoice_id
-  WHERE inv.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-  GROUP BY p.id ORDER BY qty_sold DESC LIMIT 5
-")->fetchAll();
+// Best sellers — try with emoji column (needs migration), fallback without
+try {
+    $best_sellers = $db->query("
+        SELECT p.name, p.sku, COALESCE(p.emoji,'📦') as emoji,
+               SUM(ii.qty) as qty_sold, SUM(ii.total) as revenue
+        FROM invoice_items ii
+        JOIN products p   ON p.id = ii.product_id
+        JOIN invoices inv ON inv.id = ii.invoice_id
+        WHERE inv.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        AND inv.status != 'refunded'
+        GROUP BY p.id ORDER BY qty_sold DESC LIMIT 5
+    ")->fetchAll();
+} catch (PDOException $e) {
+    $best_sellers = $db->query("
+        SELECT p.name, p.sku, '📦' as emoji,
+               SUM(ii.qty) as qty_sold, SUM(ii.total) as revenue
+        FROM invoice_items ii
+        JOIN products p   ON p.id = ii.product_id
+        JOIN invoices inv ON inv.id = ii.invoice_id
+        WHERE inv.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        AND inv.status != 'refunded'
+        GROUP BY p.id ORDER BY qty_sold DESC LIMIT 5
+    ")->fetchAll();
+}
 
-// Due customers
-$due_customers = $db->query("
-  SELECT name, balance, created_at FROM customers WHERE balance < 0 ORDER BY balance ASC LIMIT 4
-")->fetchAll();
+// Due customers — try with company_name (needs migration), fallback without
+try {
+    $due_customers = $db->query("
+        SELECT name, COALESCE(company_name,'') as company_name, balance
+        FROM customers WHERE balance < 0 AND id > 1 ORDER BY balance ASC LIMIT 5
+    ")->fetchAll();
+} catch (PDOException $e) {
+    $due_customers = $db->query("
+        SELECT name, '' as company_name, balance
+        FROM customers WHERE balance < 0 AND id > 1 ORDER BY balance ASC LIMIT 5
+    ")->fetchAll();
+}
 
-// Low stock alerts
-$low_items = $db->query("
-  SELECT p.name, SUM(s.qty) as qty FROM stock s
-  JOIN products p ON p.id = s.product_id
-  GROUP BY p.id HAVING qty <= 5 ORDER BY qty ASC LIMIT 4
-")->fetchAll();
+// Low stock alerts — try with emoji, fallback without
+try {
+    $low_items = $db->query("
+        SELECT p.name, COALESCE(p.emoji,'📦') as emoji, SUM(s.qty) as qty
+        FROM stock s
+        JOIN products p ON p.id = s.product_id
+        WHERE p.is_active = 1
+        GROUP BY p.id HAVING SUM(s.qty) <= 5
+        ORDER BY qty ASC LIMIT 5
+    ")->fetchAll();
+} catch (PDOException $e) {
+    $low_items = $db->query("
+        SELECT p.name, '📦' as emoji, SUM(s.qty) as qty
+        FROM stock s
+        JOIN products p ON p.id = s.product_id
+        WHERE p.is_active = 1
+        GROUP BY p.id HAVING SUM(s.qty) <= 5
+        ORDER BY qty ASC LIMIT 5
+    ")->fetchAll();
+}
 
 // Payment mode breakdown today
+// FIX: Use paid_amount not total — credit invoices show 0 collected, not inflated by unpaid total
 $pay_modes = $db->query("
-  SELECT payment_mode, COUNT(*) as cnt, SUM(total) as s
-  FROM invoices WHERE DATE(created_at)=CURDATE()
+  SELECT payment_mode, COUNT(*) as cnt,
+         SUM(paid_amount) as s,
+         SUM(total) as invoice_total
+  FROM invoices WHERE DATE(created_at)=CURDATE() AND status != 'refunded'
   GROUP BY payment_mode
 ")->fetchAll();
 $pay_map = [];
@@ -153,10 +204,14 @@ require __DIR__ . '/includes/header.php';
     </div>
     <div style="margin-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
       <?php
+      // payment_mode ENUM: cash, knet, wamd, transfer, credit
+      // 'partial' removed — it's a STATUS not a payment_mode (always showed 0%)
       $all_modes = [
-        'cash'=>['💵 Cash','var(--green)'],'knet'=>['💳 KNET','var(--blue)'],
-        'wamd'=>['📱 WAMD','var(--accent2)'],'transfer'=>['🏦 Transfer','var(--amber)'],
-        'partial'=>['📊 Partial','var(--purple)'],'credit'=>['💰 Credit','var(--red)']
+        'cash'    =>['💵 Cash',     'var(--green)'],
+        'knet'    =>['💳 KNET',     'var(--blue)'],
+        'wamd'    =>['📱 WAMD',     'var(--accent2)'],
+        'transfer'=>['🏦 Transfer', 'var(--amber)'],
+        'credit'  =>['💰 Credit',   'var(--red)'],
       ];
       foreach ($all_modes as $m => $cfg):
         $pct = $pay_total > 0 ? round(($pay_map[$m] ?? 0) / $pay_total * 100) : 0;
@@ -172,17 +227,20 @@ require __DIR__ . '/includes/header.php';
   <div style="display:flex;flex-direction:column;gap:14px">
     <div class="card">
       <div class="card-title"><span>🏢 <?= __('branch_performance') ?></span></div>
-      <?php foreach ($branch_sales as $b):
-        $pct = $max_branch > 0 ? round(($b['s'] / $max_branch) * 100) : 0;
-        $colors = ['var(--accent)','var(--blue)','var(--green)','var(--amber)'];
-        static $bi = 0;
+      <?php
+        $branch_colors = ['var(--accent)','var(--blue)','var(--green)','var(--amber)'];
+        foreach ($branch_sales as $bci => $b):
+          $pct = $max_branch > 0 ? round(($b['s'] / $max_branch) * 100) : 0;
       ?>
       <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
           <span><?= htmlspecialchars($b['name']) ?></span>
-          <span class="text-muted"><?= fmt_money($b['s']) ?></span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <?php if ($b['orders'] > 0): ?><span style="font-size:10px;color:var(--text3)"><?= $b['orders'] ?> orders</span><?php endif; ?>
+            <span class="text-muted"><?= fmt_money($b['s']) ?></span>
+          </div>
         </div>
-        <div class="progress"><div class="progress-fill" style="width:<?= max($pct,2) ?>%;background:<?= $colors[$bi++ % 4] ?>"></div></div>
+        <div class="progress"><div class="progress-fill" style="width:<?= max($pct,2) ?>%;background:<?= $branch_colors[$bci % 4] ?>"></div></div>
       </div>
       <?php endforeach; ?>
     </div>
@@ -214,14 +272,14 @@ require __DIR__ . '/includes/header.php';
     <div class="card-title"><span>🔥 <?= __('best_selling') ?></span><a href="<?= BASE ?>/reports.php"><?= __('view_all') ?> →</a></div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th><?= __('product') ?></th><th><?= __('sku') ?></th><th><?= __('qty') ?></th><th><?= __('revenue') ?></th></tr></thead>
+        <thead><tr><th><?= __('product') ?></th><th><?= __('sku') ?></th><th><?= __("units_sold") ?> (30d)</th><th><?= __('revenue') ?></th></tr></thead>
         <tbody>
           <?php foreach ($best_sellers as $bs): ?>
           <tr>
-            <td style="font-weight:500"><?= htmlspecialchars($bs['name']) ?></td>
+            <td style="font-weight:500"><?= htmlspecialchars($bs['emoji'] . ' ' . $bs['name']) ?></td>
             <td class="font-mono" style="font-size:11px;color:var(--text3)"><?= htmlspecialchars($bs['sku']) ?></td>
-            <td><?= $bs['qty_sold'] ?></td>
-            <td class="text-green"><?= fmt_money($bs['revenue']) ?></td>
+            <td style="font-weight:600"><?= number_format($bs['qty_sold']) ?></td>
+            <td class="text-green" style="font-weight:600"><?= fmt_money($bs['revenue']) ?></td>
           </tr>
           <?php endforeach; ?>
           <?php if (empty($best_sellers)): ?>
@@ -240,9 +298,9 @@ require __DIR__ . '/includes/header.php';
         <div class="ledger-avatar" style="background:rgba(239,68,68,.08);color:var(--red)"><?= strtoupper(substr($dc['name'],0,2)) ?></div>
         <div class="ledger-info">
           <div class="ledger-name"><?= htmlspecialchars($dc['name']) ?></div>
-          <div class="ledger-sub"><?= __('due_balance') ?></div>
+          <div class="ledger-sub"><?= $dc['company_name'] ? htmlspecialchars($dc['company_name']) : __('due_balance') ?></div>
         </div>
-        <div class="ledger-amount text-red"><?= fmt_money(abs($dc['balance'])) ?></div>
+        <div class="ledger-amount text-red">- <?= fmt_money(abs($dc['balance'])) ?></div>
       </div>
       <?php endforeach; ?>
       <?php if (empty($due_customers)): ?>
@@ -253,12 +311,14 @@ require __DIR__ . '/includes/header.php';
       <div class="card-title"><span>⚠️ <?= __('low_stock_alerts') ?></span></div>
       <?php foreach ($low_items as $li): ?>
       <div class="ledger-row">
-        <div style="font-size:20px">📦</div>
+        <div style="font-size:20px"><?= htmlspecialchars($li['emoji']) ?></div>
         <div class="ledger-info">
           <div class="ledger-name"><?= htmlspecialchars($li['name']) ?></div>
-          <div class="ledger-sub"><?= $li['qty'] ?> <?= __('units_left') ?></div>
+          <div class="ledger-sub" style="color:<?= $li['qty'] <= 0 ? 'var(--red)' : 'var(--amber)' ?>">
+            <?= $li['qty'] <= 0 ? '🚫 Out of stock' : $li['qty'] . ' ' . __('units_left') ?>
+          </div>
         </div>
-        <a href="<?= BASE ?>/purchases.php" class="btn btn-sm btn-amber"><?= __('reorder') ?></a>
+        <a href="<?= BASE ?>/purchases.php" class="btn btn-sm btn-amber" style="flex-shrink:0"><?= __('reorder') ?></a>
       </div>
       <?php endforeach; ?>
       <?php if (empty($low_items)): ?>

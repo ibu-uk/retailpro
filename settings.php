@@ -32,13 +32,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     // Handle other settings
-    $fields = ['company_name','address','phone','currency','invoice_prefix','invoice_footer','show_logo_in_invoice'];
+    $fields = ['company_name','company_name_ar','address','phone','currency',
+               'invoice_prefix','invoice_footer','show_logo_in_invoice','printer_format','vat_number'];
     foreach ($fields as $f) {
-        if (isset($_POST[$f])) {
-            $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$f, trim($_POST[$f]), trim($_POST[$f])]);
+        // Checkboxes: save '0' when unchecked (not posted)
+        if ($f === 'show_logo_in_invoice') {
+            $val = isset($_POST[$f]) ? '1' : '0';
+        } elseif (isset($_POST[$f])) {
+            $val = trim($_POST[$f]);
+        } else {
+            continue;
         }
+        $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$f, $val, $val]);
     }
-    header('Location: ' . BASE . '/settings.php?success=' . urlencode('Settings saved'));
+    header('Location: ' . BASE . '/settings.php?success=' . urlencode('Settings saved successfully'));
     exit;
 }
 
@@ -49,6 +56,12 @@ foreach ($rows as $r) $settings[$r['setting_key']] = $r['setting_value'];
 
 require __DIR__ . '/includes/header.php';
 ?>
+
+<?php if (isset($_GET['success'])): ?>
+<div class="alert alert-success" style="margin-bottom:16px">✅ <?= htmlspecialchars($_GET['success']) ?></div>
+<?php elseif (isset($_GET['error'])): ?>
+<div class="alert alert-error" style="margin-bottom:16px">❌ <?= htmlspecialchars($_GET['error']) ?></div>
+<?php endif; ?>
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('tab-company',this)"><?= __('company') ?></div>
@@ -78,6 +91,7 @@ require __DIR__ . '/includes/header.php';
       <div style="font-size:11px;color:var(--text3);margin-top:4px">Upload PNG, JPG, or GIF (max 2MB)</div>
     </div>
     <div class="form-group"><label class="form-label"><?= __('company_name') ?></label><input class="form-input" name="company_name" value="<?= htmlspecialchars($settings['company_name'] ?? '') ?>"></div>
+    <div class="form-group"><label class="form-label"><?= __('company_name') ?> (عربي)</label><input class="form-input" name="company_name_ar" value="<?= htmlspecialchars($settings['company_name_ar'] ?? '') ?>" dir="rtl" placeholder="اسم الشركة بالعربي"></div>
     <div class="form-group"><label class="form-label"><?= __('address') ?></label><textarea class="form-textarea" name="address"><?= htmlspecialchars($settings['address'] ?? '') ?></textarea></div>
     <div class="form-row">
       <div class="form-group"><label class="form-label"><?= __('phone') ?></label><input class="form-input" name="phone" value="<?= htmlspecialchars($settings['phone'] ?? '') ?>"></div>
@@ -98,11 +112,17 @@ require __DIR__ . '/includes/header.php';
     <div class="form-group"><label class="form-label"><?= __('invoice_prefix') ?></label><input class="form-input" name="invoice_prefix" value="<?= htmlspecialchars($settings['invoice_prefix'] ?? 'INV-') ?>"></div>
     <div class="form-group"><label class="form-label"><?= __('invoice_footer') ?></label><textarea class="form-textarea" name="invoice_footer"><?= htmlspecialchars($settings['invoice_footer'] ?? '') ?></textarea></div>
     <div class="form-group">
-      <label style="display:inline-flex;align-items:center;gap:8px;font-weight:500">
-        <input type="checkbox" name="show_logo_in_invoice" value="1" <?= ($settings['show_logo_in_invoice'] ?? '') === '1' ? 'checked' : '' ?>>
-        <?= __('show_logo_invoice') ?>
-      </label>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px">Enable to display your company logo at the top of printed invoices</div>
+      <label class="form-label"><?= __('show_logo_invoice') ?></label>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r)">
+        <label class="toggle-switch" style="flex-shrink:0">
+          <input type="checkbox" name="show_logo_in_invoice" value="1" id="toggle-logo" <?= ($settings['show_logo_in_invoice'] ?? '0') === '1' ? 'checked' : '' ?>>
+          <span class="toggle-slider"></span>
+        </label>
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--text)" id="toggle-logo-label"><?= ($settings['show_logo_in_invoice'] ?? '0') === '1' ? __('enabled') : __('disabled') ?></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Show your company logo at the top of every printed invoice</div>
+        </div>
+      </div>
     </div>
     <div class="form-group"><label class="form-label">Default Printer Format</label>
       <select class="form-select" name="printer_format">
@@ -138,12 +158,56 @@ require __DIR__ . '/includes/header.php';
 </form>
 
 <?php
-$extra_js = '<script>
+ob_start(); ?>
+<style>
+.toggle-switch{position:relative;display:inline-block;width:44px;height:24px}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--bg5);border-radius:24px;transition:.25s}
+.toggle-slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s}
+.toggle-switch input:checked + .toggle-slider{background:var(--green)}
+.toggle-switch input:checked + .toggle-slider:before{transform:translateX(20px)}
+</style>
+<script>
 function switchTab(id, el) {
   ["tab-company","tab-invoice","tab-backup"].forEach(t => document.getElementById(t).style.display="none");
   document.getElementById(id).style.display="block";
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
   el.classList.add("active");
 }
-</script>';
+const logoToggle = document.getElementById("toggle-logo");
+const logoLabel  = document.getElementById("toggle-logo-label");
+if (logoToggle && logoLabel) {
+  logoToggle.addEventListener("change", function() {
+    logoLabel.textContent = this.checked ? "Enabled" : "Disabled";
+    logoLabel.style.color = this.checked ? "var(--green)" : "var(--text)";
+  });
+  if (logoToggle.checked) logoLabel.style.color = "var(--green)";
+}
+const logoInput = document.querySelector('input[name="logo"]');
+if (logoInput) {
+  logoInput.addEventListener("change", function() {
+    const file = this.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showToast("Error", "File too large — max 2MB", "error");
+      this.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      let preview = document.getElementById("logo-preview-new");
+      if (!preview) {
+        preview = document.createElement("img");
+        preview.id = "logo-preview-new";
+        preview.style.cssText = "max-height:70px;max-width:180px;border:1px solid var(--border2);border-radius:var(--r);padding:6px;background:var(--bg2);margin-top:8px;display:block";
+        this.after(preview);
+      }
+      preview.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+</script>
+<?php
+$extra_js = ob_get_clean();
 require __DIR__ . '/includes/footer.php'; ?>

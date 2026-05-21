@@ -5,27 +5,58 @@ $current_page = 'users';
 $page_title   = __('user_management');
 $db = db();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
-    $hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
-    $db->prepare("INSERT INTO users (name,email,password,role,branch_id) VALUES (?,?,?,?,?)")->execute([
-        trim($_POST['name']), trim($_POST['email']), $hash,
-        $_POST['role'], $_POST['branch_id'] ?: null
-    ]);
-    header('Location: ' . BASE . '/users.php?success=' . urlencode('User created'));
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
+    $pass = $_POST['password'] ?? '';
+    if (strlen($pass) < 6) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('Password must be at least 6 characters'));
+        exit;
+    }
+    $hash = password_hash($pass, PASSWORD_DEFAULT);
+    // Check duplicate email
+    $existing = $db->prepare("SELECT id FROM users WHERE email=?");
+    $existing->execute([trim($_POST['email'])]);
+    if ($existing->fetch()) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('Email already exists: ' . trim($_POST['email'])));
+        exit;
+    }
+    try {
+        $db->prepare("INSERT INTO users (name,email,password,role,branch_id) VALUES (?,?,?,?,?)")->execute([
+            trim($_POST['name']), trim($_POST['email']), $hash,
+            $_POST['role'], $_POST['branch_id'] ?: null
+        ]);
+        header('Location: ' . BASE . '/users.php?success=' . urlencode('User ' . trim($_POST['name']) . ' created'));
+    } catch (Exception $e) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('Failed to create user: ' . $e->getMessage()));
+    }
     exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit') {
     $uid = (int)$_POST['user_id'];
-    $db->prepare("UPDATE users SET name=?, email=?, role=?, branch_id=? WHERE id=?")->execute([
-        trim($_POST['name']), trim($_POST['email']),
-        $_POST['role'], $_POST['branch_id'] ?: null, $uid
-    ]);
-    if (!empty($_POST['password'])) {
-        $hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
-        $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([$hash, $uid]);
+    // Check duplicate email (exclude self)
+    $existing = $db->prepare("SELECT id FROM users WHERE email=? AND id != ?");
+    $existing->execute([trim($_POST['email']), $uid]);
+    if ($existing->fetch()) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('Email already used by another user'));
+        exit;
     }
-    header('Location: ' . BASE . '/users.php?success=' . urlencode('User updated'));
+    if (!empty($_POST['password']) && strlen($_POST['password']) < 6) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('New password must be at least 6 characters'));
+        exit;
+    }
+    try {
+        $db->prepare("UPDATE users SET name=?, email=?, role=?, branch_id=? WHERE id=?")->execute([
+            trim($_POST['name']), trim($_POST['email']),
+            $_POST['role'], $_POST['branch_id'] ?: null, $uid
+        ]);
+        if (!empty($_POST['password'])) {
+            $hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
+            $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([$hash, $uid]);
+        }
+        header('Location: ' . BASE . '/users.php?success=' . urlencode('User updated'));
+    } catch (Exception $e) {
+        header('Location: ' . BASE . '/users.php?error=' . urlencode('Update failed: ' . $e->getMessage()));
+    }
     exit;
 }
 
@@ -56,6 +87,12 @@ $role_labels = ['super_admin'=>'Super Admin','manager'=>'Branch Manager','cashie
 
 require __DIR__ . '/includes/header.php';
 ?>
+
+<?php if (isset($_GET['success'])): ?>
+<div class="alert alert-success" style="margin-bottom:16px">✅ <?= htmlspecialchars($_GET['success']) ?></div>
+<?php elseif (isset($_GET['error'])): ?>
+<div class="alert alert-error" style="margin-bottom:16px">❌ <?= htmlspecialchars($_GET['error']) ?></div>
+<?php endif; ?>
 
 <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:16px">
   <button class="btn btn-ghost" onclick="showToast('Roles','Role configuration opened.','success')">⚙️ Manage Roles</button>
@@ -150,6 +187,22 @@ require __DIR__ . '/includes/header.php';
 
 <?php
 $extra_js = '<script>
+function updateBranchHint() {
+  const role = document.getElementById("user-role").value;
+  const hint = document.getElementById("branch-hint");
+  const branchSelect = document.getElementById("user-branch");
+  if (role === "super_admin") {
+    hint.textContent = "(super_admin sees all branches — leave empty)";
+    hint.style.color = "var(--amber)";
+    branchSelect.value = "";
+  } else if (role === "cashier" || role === "manager") {
+    hint.textContent = "(required — select this user\'s branch)";
+    hint.style.color = "var(--green)";
+  } else {
+    hint.textContent = "(optional for inventory role)";
+    hint.style.color = "var(--text3)";
+  }
+}
 function editUser(u) {
   document.getElementById("user-action").value = "edit";
   document.getElementById("user-id").value = u.id;
@@ -159,9 +212,10 @@ function editUser(u) {
   document.getElementById("user-branch").value = u.branch_id || "";
   document.getElementById("user-pw").value = "";
   document.getElementById("user-pw").removeAttribute("required");
-  document.getElementById("pw-label").textContent = "' . __('password') . '";
+  document.getElementById("pw-label").textContent = "' . __('password') . ' (leave blank to keep current)";
   document.getElementById("user-modal-title").textContent = "' . __('edit') . ' ' . __('user') . '";
   document.getElementById("user-submit-btn").textContent = "' . __('save') . '";
+  updateBranchHint();
   openModal("user-modal");
 }
 function openAddUser() {
@@ -169,10 +223,12 @@ function openAddUser() {
   document.getElementById("user-action").value = "add";
   document.getElementById("user-id").value = "";
   document.getElementById("user-pw").setAttribute("required","required");
-  document.getElementById("pw-label").textContent = "' . __('password') . ' *";
+  document.getElementById("pw-label").textContent = "' . __('password') . ' * (min 6 chars)";
   document.getElementById("user-modal-title").textContent = "' . __('add') . ' ' . __('user') . '";
   document.getElementById("user-submit-btn").textContent = "' . __('save') . '";
+  updateBranchHint();
   openModal("user-modal");
 }
+document.getElementById("user-role").addEventListener("change", updateBranchHint);
 </script>';
 require __DIR__ . '/includes/footer.php'; ?>

@@ -259,28 +259,6 @@ html[dir="rtl"] .sidebar-logo{flex-direction:row-reverse}
 html[dir="rtl"] .topbar-actions{flex-direction:row-reverse}
 html[dir="rtl"] .cart-header{flex-direction:row-reverse}
 html[dir="rtl"] .search-bar{flex-direction:row-reverse}
-html[dir="rtl"] .cust-search-icon{left:auto;right:10px}
-html[dir="rtl"] .cust-dropdown{left:0;right:0}
-html[dir="rtl"] .pos-mobile-tabs{margin:-24px -24px 14px}
-html[dir="rtl"] .barcode-bar{flex-direction:row-reverse}
-html[dir="rtl"] .cart-totals .cart-row{flex-direction:row-reverse}
-html[dir="rtl"] .customer-tabs{flex-direction:row-reverse}
-html[dir="rtl"] .cust-option{flex-direction:row-reverse}
-html[dir="rtl"] .cust-selected{flex-direction:row-reverse}
-html[dir="rtl"] .walkin-label{flex-direction:row-reverse}
-html[dir="rtl"] .payment-modes .pay-mode{direction:rtl}
-html[dir="rtl"] .form-row{direction:rtl}
-html[dir="rtl"] .nav-item.active::before{left:auto;right:0;border-radius:3px 0 0 3px}
-html[dir="rtl"] .stat-card::before{left:0;right:0}
-html[dir="rtl"] .tabs{flex-direction:row-reverse}
-html[dir="rtl"] .tab{border-bottom:2px solid transparent}
-html[dir="rtl"] .modal-close{margin-left:0;margin-right:auto}
-html[dir="rtl"] .inv-filters{flex-direction:row-reverse}
-html[dir="rtl"] .topbar-actions .btn{flex-direction:row-reverse}
-html[dir="rtl"] td{text-align:right}
-html[dir="rtl"] .badge{direction:rtl}
-html[dir="rtl"] .pos-cart .cart-footer .cart-row{flex-direction:row-reverse}
-html[dir="rtl"] #pos-cat{text-align:right}
 html[dir="rtl"] .ledger-row{flex-direction:row-reverse}
 html[dir="rtl"] .alert{flex-direction:row-reverse}
 html[dir="rtl"] .toast{flex-direction:row-reverse}
@@ -309,20 +287,15 @@ html[dir="rtl"] .toast.warning{border-left:none;border-right:3px solid var(--amb
 
 <nav id="sidebar">
   <div class="sidebar-logo">
-    <?php
-      $company_logo    = get_setting('company_logo');
-      $_co_name        = get_setting('company_name', APP_NAME);
-      $_co_name_ar     = get_setting('company_name_ar', '');
-      $display_name    = (is_rtl() && $_co_name_ar) ? $_co_name_ar : ($_co_name ?: APP_NAME);
-    ?>
+    <?php $company_logo = get_setting('company_logo'); ?>
     <?php if ($company_logo): ?>
-    <img src="<?= htmlspecialchars($company_logo) ?>" alt="Logo" style="max-height:36px;max-width:36px;border-radius:8px;object-fit:contain;flex-shrink:0">
+    <img src="<?= htmlspecialchars($company_logo) ?>" alt="Logo" style="max-height:36px;max-width:36px;border-radius:8px;object-fit:contain">
     <?php else: ?>
-    <div class="logo-icon" style="flex-shrink:0">🛍️</div>
+    <div class="logo-icon">🛍️</div>
     <?php endif; ?>
-    <div style="min-width:0;overflow:hidden">
-      <div class="logo-text" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<?= htmlspecialchars($display_name) ?>"><?= htmlspecialchars($display_name) ?></div>
-      <div class="logo-sub">v<?= APP_VERSION ?></div>
+    <div>
+      <div class="logo-text"><?= __('app_name') ?></div>
+      <div class="logo-sub">v<?= APP_VERSION ?> — <?= __('kuwait') ?></div>
     </div>
   </div>
 
@@ -383,7 +356,7 @@ html[dir="rtl"] .toast.warning{border-left:none;border-right:3px solid var(--amb
       <div class="user-name truncate"><?= htmlspecialchars($user['name']) ?></div>
       <div class="user-role"><?= ucfirst(str_replace('_',' ',$user['role'])) ?></div>
     </div>
-    <button onclick="confirmLogout()" style="font-size:16px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px;border-radius:6px;transition:color var(--transition),background var(--transition)" title="<?= __('logout') ?>" onmouseover="this.style.color='var(--red)';this.style.background='rgba(239,68,68,.1)'" onmouseout="this.style.color='var(--text3)';this.style.background='none'">🚪</button>
+    <a href="<?= BASE ?>/logout.php" style="font-size:16px;color:var(--text3);text-decoration:none" title="<?= __('logout') ?>">🚪</a>
   </div>
 </nav>
 
@@ -449,19 +422,6 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── Mobile Sidebar ──
-function confirmLogout() {
-  appConfirm({
-    title: '<?= __("logout") ?>',
-    message: 'Are you sure you want to log out?',
-    detail: 'Any unsaved changes (e.g. open POS cart) will be lost.',
-    type: 'warning',
-    confirmText: '🚪 Log Out',
-    cancelText: 'Stay',
-    onConfirm: function() {
-      window.location.href = '<?= BASE ?>/logout.php';
-    }
-  });
-}
 function toggleSidebar() {
   const s = document.getElementById('sidebar');
   const o = document.getElementById('sidebar-overlay');

@@ -81,9 +81,13 @@ function fmt_money(float $amount): string {
 
 function next_invoice_number(): string {
     $prefix = get_setting('invoice_prefix', 'INV-');
-    $stmt = db()->query("SELECT COUNT(*) as cnt FROM invoices");
-    $cnt = $stmt->fetch()['cnt'] + 1;
-    return $prefix . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+    $year = date('Y');
+    // Use MAX seq to avoid duplicates when invoices are deleted; LIKE is year-scoped
+    $stmt = db()->prepare("SELECT MAX(CAST(SUBSTRING_INDEX(invoice_number, '-', -1) AS UNSIGNED)) as mx FROM invoices WHERE invoice_number LIKE ?");
+    $stmt->execute([$prefix . $year . '-%']);
+    $row = $stmt->fetch();
+    $cnt = ($row && $row['mx']) ? (int)$row['mx'] + 1 : 1;
+    return $prefix . $year . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
 }
 
 function next_po_number(): string {

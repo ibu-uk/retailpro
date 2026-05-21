@@ -2,9 +2,12 @@
 require_once __DIR__ . '/includes/config.php';
 if (current_user()) { header('Location: ' . BASE . '/index.php'); exit; }
 
-$company_logo = get_setting('company_logo');
+$company_logo  = get_setting('company_logo');
+$_co_name      = get_setting('company_name', APP_NAME);
+$_co_name_ar   = get_setting('company_name_ar', '');
 $_lang = get_lang();
-$_rtl = is_rtl();
+$_rtl  = is_rtl();
+$display_name  = ($_rtl && $_co_name_ar) ? $_co_name_ar : ($_co_name ?: APP_NAME);
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
@@ -66,7 +69,7 @@ code{color:var(--accent);background:var(--bg4);padding:1px 6px;border-radius:4px
     <?php else: ?>
     <div class="logo-icon">🛍️</div>
     <?php endif; ?>
-    <div class="logo-title"><?= __('app_name') ?></div>
+    <div class="logo-title"><?= htmlspecialchars($display_name) ?></div>
     <div class="logo-sub"><?= __('login_subtitle') ?></div>
   </div>
   <?php if ($error): ?>

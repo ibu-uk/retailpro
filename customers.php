@@ -6,81 +6,179 @@ $page_title   = __('customer_management');
 $db = db();
 $currency = get_setting('currency', 'KWD');
 
-// Add customer
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
-    $db->prepare("INSERT INTO customers (name,name_ar,email,phone,type,credit_limit,address,address_ar) VALUES (?,?,?,?,?,?,?,?)")->execute([
-        trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['email']), trim($_POST['phone']),
-        $_POST['type'], (float)$_POST['credit_limit'], trim($_POST['address']), trim($_POST['address_ar'] ?? '')
-    ]);
-    header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer added'));
-    exit;
-}
-
-// Edit customer
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit') {
-    $db->prepare("UPDATE customers SET name=?,name_ar=?,email=?,phone=?,type=?,credit_limit=?,address=?,address_ar=? WHERE id=?")->execute([
-        trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['email']), trim($_POST['phone']),
-        $_POST['type'], (float)$_POST['credit_limit'], trim($_POST['address']), trim($_POST['address_ar'] ?? ''), (int)$_POST['customer_id']
-    ]);
-    header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer updated'));
-    exit;
-}
-
-// Delete customer
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
-    $cid = (int)$_POST['customer_id'];
-    $has_inv = $db->prepare("SELECT COUNT(*) FROM invoices WHERE customer_id=?"); $has_inv->execute([$cid]);
-    if ($has_inv->fetchColumn() > 0) {
-        header('Location: ' . BASE . '/customers.php?error=' . urlencode('Cannot delete: customer has invoices'));
-        exit;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $act = $_POST['action'] ?? '';
+    if ($act === 'add') {
+        // Detect which optional columns exist (arabic fields added via migration)
+        try {
+            $db->prepare("INSERT INTO customers (name,company_name,name_ar,email,phone,type,credit_limit,address,address_ar) VALUES (?,?,?,?,?,?,?,?,?)")->execute([
+                trim($_POST['name']), trim($_POST['company_name'] ?? ''),
+                trim($_POST['name_ar'] ?? ''),
+                trim($_POST['email']), trim($_POST['phone']),
+                $_POST['type'], (float)$_POST['credit_limit'],
+                trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? '')
+            ]);
+        } catch (PDOException $e) {
+            // Fallback: insert without columns that might not exist yet
+            $db->prepare("INSERT INTO customers (name,company_name,email,phone,type,credit_limit,address) VALUES (?,?,?,?,?,?,?)")->execute([
+                trim($_POST['name']), trim($_POST['company_name'] ?? ''),
+                trim($_POST['email']), trim($_POST['phone']),
+                $_POST['type'], (float)$_POST['credit_limit'],
+                trim($_POST['address'] ?? '')
+            ]);
+        }
+        header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer added')); exit;
     }
-    $db->prepare("DELETE FROM customers WHERE id=?")->execute([$cid]);
-    header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer deleted'));
-    exit;
+    if ($act === 'edit') {
+        try {
+            $db->prepare("UPDATE customers SET name=?,company_name=?,name_ar=?,email=?,phone=?,type=?,credit_limit=?,address=?,address_ar=? WHERE id=?")->execute([
+                trim($_POST['name']), trim($_POST['company_name'] ?? ''),
+                trim($_POST['name_ar'] ?? ''),
+                trim($_POST['email']), trim($_POST['phone']),
+                $_POST['type'], (float)$_POST['credit_limit'],
+                trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? ''),
+                (int)$_POST['customer_id']
+            ]);
+        } catch (PDOException $e) {
+            // Fallback without optional columns
+            $db->prepare("UPDATE customers SET name=?,company_name=?,email=?,phone=?,type=?,credit_limit=?,address=? WHERE id=?")->execute([
+                trim($_POST['name']), trim($_POST['company_name'] ?? ''),
+                trim($_POST['email']), trim($_POST['phone']),
+                $_POST['type'], (float)$_POST['credit_limit'],
+                trim($_POST['address'] ?? ''),
+                (int)$_POST['customer_id']
+            ]);
+        }
+        header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer updated')); exit;
+    }
+    if ($act === 'delete') {
+        $cid = (int)$_POST['customer_id'];
+        $has_inv = $db->prepare("SELECT COUNT(*) FROM invoices WHERE customer_id=?");
+        $has_inv->execute([$cid]);
+        if ($has_inv->fetchColumn() > 0) {
+            header('Location: ' . BASE . '/customers.php?error=' . urlencode('Cannot delete: customer has invoices')); exit;
+        }
+        $db->prepare("DELETE FROM customers WHERE id=?")->execute([$cid]);
+        header('Location: ' . BASE . '/customers.php?success=' . urlencode('Customer deleted')); exit;
+    }
 }
 
 $search = trim($_GET['search'] ?? '');
 $type_f = $_GET['type'] ?? '';
+$bal_f  = $_GET['bal'] ?? '';
+
+// ── Build WHERE with params (safe, no injection) ──
 $where  = "WHERE c.id > 1";
 $params = [];
-if ($search) { $where .= " AND (c.name LIKE ? OR c.phone LIKE ? OR c.email LIKE ?)"; $params = array_fill(0,3,"%$search%"); }
+if ($search) {
+    $where .= " AND (c.name LIKE ? OR c.company_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.name_ar LIKE ?)";
+    $s = "%$search%";
+    $params = [$s,$s,$s,$s,$s];
+}
 if ($type_f) { $where .= " AND c.type = ?"; $params[] = $type_f; }
+if ($bal_f === 'owing')   { $where .= " AND c.balance < 0"; }
+if ($bal_f === 'advance') { $where .= " AND c.balance > 0"; }
+if ($bal_f === 'clear')   { $where .= " AND c.balance = 0"; }
 
-// Pagination
+// ── Pagination — large dataset optimised ──
 $page_num = max(1, (int)($_GET['p'] ?? 1));
-$per_page = 20;
+$per_page = 25;  // Show 25 per page for performance
 $offset   = ($page_num - 1) * $per_page;
+
 $count_stmt = $db->prepare("SELECT COUNT(*) FROM customers c $where");
 $count_stmt->execute($params);
 $total_custs = $count_stmt->fetchColumn();
-$total_pages = ceil($total_custs / $per_page);
+$total_pages = max(1, ceil($total_custs / $per_page));
 
-$customers = $db->prepare("
-    SELECT c.*, COUNT(i.id) as invoice_count, MAX(i.created_at) as last_purchase
-    FROM customers c LEFT JOIN invoices i ON i.customer_id = c.id
-    $where GROUP BY c.id ORDER BY c.name LIMIT $per_page OFFSET $offset
-");
-$customers->execute($params);
-$customers = $customers->fetchAll();
+// ── Use LEFT JOIN with aggregation — indexed query ──
+// Try with all optional columns first, fallback if arabic columns missing
+try {
+    $customers = $db->prepare("
+        SELECT c.id, c.name,
+               COALESCE(c.company_name,'') as company_name,
+               COALESCE(c.name_ar,'') as name_ar,
+               COALESCE(c.email,'') as email,
+               COALESCE(c.phone,'') as phone,
+               COALESCE(c.address,'') as address,
+               COALESCE(c.address_ar,'') as address_ar,
+               c.type, c.credit_limit, c.balance,
+               COALESCE(c.is_active,1) as is_active,
+               COUNT(i.id) as invoice_count,
+               MAX(i.created_at) as last_purchase
+        FROM customers c
+        LEFT JOIN invoices i ON i.customer_id = c.id
+        $where
+        GROUP BY c.id
+        ORDER BY c.name
+        LIMIT $per_page OFFSET $offset
+    ");
+    $customers->execute($params);
+    $customers = $customers->fetchAll();
+} catch (PDOException $e) {
+    // Fallback: arabic columns not yet migrated
+    $customers = $db->prepare("
+        SELECT c.id, c.name,
+               COALESCE(c.company_name,'') as company_name,
+               '' as name_ar,
+               COALESCE(c.email,'') as email,
+               COALESCE(c.phone,'') as phone,
+               COALESCE(c.address,'') as address,
+               '' as address_ar,
+               c.type, c.credit_limit, c.balance,
+               COALESCE(c.is_active,1) as is_active,
+               COUNT(i.id) as invoice_count,
+               MAX(i.created_at) as last_purchase
+        FROM customers c
+        LEFT JOIN invoices i ON i.customer_id = c.id
+        $where
+        GROUP BY c.id
+        ORDER BY c.name
+        LIMIT $per_page OFFSET $offset
+    ");
+    $customers->execute($params);
+    $customers = $customers->fetchAll();
+}
+
+// ── Stats ──
+$stats = $db->query("SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN balance < 0 THEN 1 ELSE 0 END) as owing_count,
+    COALESCE(SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END),0) as owing_total,
+    COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END),0) as advance_total
+    FROM customers WHERE id > 1")->fetch();
 
 require __DIR__ . '/includes/header.php';
 ?>
 
+<!-- Stats -->
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:14px">
+  <div class="stat-card blue"><div class="stat-label"><?= __('total_customers') ?></div><div class="stat-value text-blue"><?= number_format($stats['total']) ?></div></div>
+  <div class="stat-card red"><div class="stat-label"><?= __('owing') ?></div><div class="stat-value text-red"><?= $stats['owing_count'] ?></div><div class="stat-delta down"><?= fmt_money($stats['owing_total']) ?></div></div>
+  <div class="stat-card green"><div class="stat-label"><?= __('advance') ?></div><div class="stat-value text-green"><?= fmt_money($stats['advance_total']) ?></div></div>
+</div>
+
+<!-- Filters -->
 <div class="inv-filters">
-  <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;flex:1">
-    <input class="search-input" name="search" placeholder="<?= __('search') ?>..." style="width:260px" value="<?= htmlspecialchars($search) ?>">
-    <select class="search-input" name="type" style="width:160px" onchange="this.form.submit()">
+  <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;flex:1;align-items:center">
+    <input class="search-input" name="search" placeholder="🔍 <?= __('search') ?>..." style="flex:1;min-width:180px" value="<?= htmlspecialchars($search) ?>">
+    <select class="search-input" name="type" style="width:140px" onchange="this.form.submit()">
       <option value=""><?= __('all') ?></option>
       <option value="retail" <?= $type_f==='retail'?'selected':'' ?>><?= __('retail') ?></option>
       <option value="wholesale" <?= $type_f==='wholesale'?'selected':'' ?>><?= __('wholesale') ?></option>
     </select>
+    <select class="search-input" name="bal" style="width:140px" onchange="this.form.submit()">
+      <option value=""><?= __('all') ?> Balances</option>
+      <option value="owing" <?= $bal_f==='owing'?'selected':'' ?>>Owing</option>
+      <option value="advance" <?= $bal_f==='advance'?'selected':'' ?>>Advance</option>
+      <option value="clear" <?= $bal_f==='clear'?'selected':'' ?>>Clear</option>
+    </select>
     <button type="submit" class="btn btn-ghost"><?= __('search') ?></button>
-    <a href="<?= BASE ?>/customers.php" class="btn btn-ghost">Reset</a>
+    <a href="<?= BASE ?>/customers.php" class="btn btn-ghost">↺</a>
   </form>
-  <div style="display:flex;gap:6px">
+  <div style="display:flex;gap:6px;flex-shrink:0">
     <a href="<?= BASE ?>/api/export_customers.php" class="btn btn-ghost btn-sm">📊 Excel</a>
-    <button type="button" class="btn btn-ghost btn-sm" onclick="printCustomers()">🖨️ Print</button>
-    <button class="btn btn-primary" onclick="openAddCustomer()">+ <?= __('add') ?> <?= __('customer_name') ?></button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="window.print()">🖨️</button>
+    <button class="btn btn-primary" onclick="openAddCustomer()">+ <?= __('add') ?></button>
   </div>
 </div>
 
@@ -88,28 +186,46 @@ require __DIR__ . '/includes/header.php';
   <div class="tbl-wrap">
     <table>
       <thead>
-        <tr><th><?= __('customer_name') ?></th><th><?= __('type') ?></th><th><?= __('phone') ?></th><th><?= __('balance') ?></th><th><?= __('credit_limit') ?></th><th><?= __('last_purchase') ?></th><th><?= __('invoice') ?></th><th><?= __('status') ?></th><th><?= __('actions') ?></th></tr>
+        <tr>
+          <th><?= __('customer_name') ?></th>
+          <th class="hide-mobile"><?= __('type') ?></th>
+          <th class="hide-mobile"><?= __('phone') ?></th>
+          <th><?= __('balance') ?></th>
+          <th class="hide-tablet"><?= __('credit_limit') ?></th>
+          <th class="hide-tablet"><?= __('last_purchase') ?></th>
+          <th class="hide-tablet"><?= __('invoice') ?></th>
+          <th><?= __('status') ?></th>
+          <th><?= __('actions') ?></th>
+        </tr>
       </thead>
       <tbody>
         <?php foreach ($customers as $c): ?>
         <tr>
           <td>
             <div style="display:flex;align-items:center;gap:8px">
-              <div class="ledger-avatar" style="background:rgba(67,97,238,.08);color:var(--accent);font-size:11px"><?= strtoupper(substr($c['name'],0,2)) ?></div>
-              <div>
-                <div style="font-weight:500"><?= htmlspecialchars($c['name']) ?><?php if ($c['name_ar']) echo '<br><span style="font-size:11px;color:var(--text3)">' . htmlspecialchars($c['name_ar']) . '</span>'; ?></div>
-                <div style="font-size:11px;color:var(--text3)"><?= htmlspecialchars($c['email']) ?></div>
+              <div class="ledger-avatar" style="background:rgba(67,97,238,.1);color:var(--accent);font-size:10px;flex-shrink:0">
+                <?= strtoupper(substr($c['name'],0,2)) ?>
+              </div>
+              <div style="min-width:0">
+                <div style="font-weight:600" class="truncate"><?= htmlspecialchars($c['name']) ?></div>
+                <?php if ($c['company_name']): ?>
+                <div style="font-size:12px;color:var(--accent2);font-weight:500" class="truncate">🏢 <?= htmlspecialchars($c['company_name']) ?></div>
+                <?php endif; ?>
+                <?php if ($c['name_ar']): ?>
+                <div style="font-size:11px;color:var(--text3);direction:rtl" class="truncate"><?= htmlspecialchars($c['name_ar']) ?></div>
+                <?php endif; ?>
+                <?php if ($c['email']): ?><div style="font-size:11px;color:var(--text3)" class="truncate"><?= htmlspecialchars($c['email']) ?></div><?php endif; ?>
               </div>
             </div>
           </td>
-          <td><span class="badge <?= $c['type']==='wholesale'?'badge-purple':'badge-blue' ?>"><?= ucfirst($c['type']) ?></span></td>
-          <td class="font-mono" style="font-size:12px"><?= htmlspecialchars($c['phone']) ?></td>
-          <td style="font-weight:600;color:<?= $c['balance']<0?'var(--red)':($c['balance']>0?'var(--green)':'var(--text2)') ?>">
+          <td class="hide-mobile"><span class="badge <?= $c['type']==='wholesale'?'badge-purple':'badge-blue' ?>"><?= ucfirst($c['type']) ?></span></td>
+          <td class="hide-mobile" style="font-size:12px;white-space:nowrap"><?= htmlspecialchars($c['phone']) ?></td>
+          <td style="font-weight:600;white-space:nowrap;color:<?= $c['balance']<0?'var(--red)':($c['balance']>0?'var(--green)':'var(--text2)') ?>">
             <?= $c['balance'] < 0 ? '-' : '' ?><?= fmt_money(abs($c['balance'])) ?>
           </td>
-          <td><?= fmt_money($c['credit_limit']) ?></td>
-          <td style="font-size:12px;color:var(--text3)"><?= $c['last_purchase'] ? date('d M Y', strtotime($c['last_purchase'])) : '-' ?></td>
-          <td><?= $c['invoice_count'] ?></td>
+          <td class="hide-tablet" style="white-space:nowrap"><?= fmt_money($c['credit_limit']) ?></td>
+          <td class="hide-tablet" style="font-size:12px;color:var(--text3);white-space:nowrap"><?= $c['last_purchase'] ? date('d M Y', strtotime($c['last_purchase'])) : '—' ?></td>
+          <td class="hide-tablet"><?= $c['invoice_count'] ?></td>
           <td>
             <?php if ($c['balance'] < 0): ?>
               <span class="badge badge-red"><span class="dot"></span><?= __('owing') ?></span>
@@ -122,11 +238,13 @@ require __DIR__ . '/includes/header.php';
           <td>
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm" onclick='editCustomer(<?= json_encode($c, JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>✏️</button>
-              <a href="<?= BASE ?>/payments.php" class="btn btn-sm btn-green" title="Collect Payment">💰</a>
+              <?php if ($c['balance'] < 0): ?>
+              <a href="<?= BASE ?>/payments.php?customer_id=<?= $c['id'] ?>" class="btn btn-sm btn-green" title="Collect">💰</a>
+              <?php endif; ?>
               <?php if ($c['invoice_count'] == 0): ?>
               <form method="POST" style="display:inline" onsubmit="return confirm('Delete this customer?')">
                 <input type="hidden" name="action" value="delete"><input type="hidden" name="customer_id" value="<?= $c['id'] ?>">
-                <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--red)">�️</button>
+                <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--red)">🗑️</button>
               </form>
               <?php endif; ?>
             </div>
@@ -139,17 +257,36 @@ require __DIR__ . '/includes/header.php';
       </tbody>
     </table>
   </div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--text3)">
-    <span><?= __('showing') ?> <?= count($customers) ?> <?= __('of') ?> <?= $total_custs ?></span>
+  <!-- Pagination — smart window for 100k records -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:8px">
+    <span class="page-info"><?= __('showing') ?> <?= number_format(($page_num-1)*$per_page+1) ?>–<?= number_format(min($page_num*$per_page,$total_custs)) ?> <?= __('of') ?> <?= number_format($total_custs) ?></span>
     <div class="pagination">
-      <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-      <a href="?search=<?= urlencode($search) ?>&type=<?= $type_f ?>&p=<?= $i ?>" class="page-link <?= $i === $page_num ? 'active' : '' ?>"><?= $i ?></a>
-      <?php endfor; ?>
+      <?php if ($page_num > 1): ?>
+      <a href="?search=<?= urlencode($search) ?>&type=<?= $type_f ?>&bal=<?= $bal_f ?>&p=<?= $page_num-1 ?>" class="page-link">‹</a>
+      <?php endif; ?>
+      <?php
+      // Smart window: show first, window around current, last
+      $window = 2;
+      $pages_shown = [];
+      for ($i = 1; $i <= $total_pages; $i++) {
+          if ($i == 1 || $i == $total_pages || abs($i - $page_num) <= $window) $pages_shown[] = $i;
+      }
+      $prev = 0;
+      foreach ($pages_shown as $p):
+          if ($prev && $p - $prev > 1): ?><span class="page-link disabled">…</span><?php endif;
+          $prev = $p;
+      ?>
+      <a href="?search=<?= urlencode($search) ?>&type=<?= $type_f ?>&bal=<?= $bal_f ?>&p=<?= $p ?>"
+         class="page-link <?= $p==$page_num?'active':'' ?>"><?= $p ?></a>
+      <?php endforeach; ?>
+      <?php if ($page_num < $total_pages): ?>
+      <a href="?search=<?= urlencode($search) ?>&type=<?= $type_f ?>&bal=<?= $bal_f ?>&p=<?= $page_num+1 ?>" class="page-link">›</a>
+      <?php endif; ?>
     </div>
   </div>
 </div>
 
-<!-- CUSTOMER MODAL (Add/Edit) -->
+<!-- CUSTOMER MODAL -->
 <div class="modal-backdrop" id="customer-modal">
   <div class="modal">
     <div class="modal-header">
@@ -161,10 +298,14 @@ require __DIR__ . '/includes/header.php';
       <input type="hidden" name="customer_id" value="" id="cust-id">
       <div class="modal-body">
         <div class="form-row">
-          <div class="form-group"><label class="form-label"><?= __('full_name') ?> *</label><input class="form-input" name="name" id="cust-name" required placeholder="Ahmad Al-Mutairi"></div>
+          <div class="form-group"><label class="form-label"><?= __('full_name') ?> (EN) *</label><input class="form-input" name="name" id="cust-name" required placeholder="Ahmad Al-Mutairi"></div>
           <div class="form-group"><label class="form-label"><?= __('phone') ?></label><input class="form-input" name="phone" id="cust-phone" placeholder="+965 9988-7766"></div>
         </div>
-        <div class="form-group"><label class="form-label"><?= __('name') ?> (<?= __('arabic') ?>)</label><input class="form-input" name="name_ar" id="cust-name-ar" placeholder="أحمد المطيري" style="direction:rtl"></div>
+        <div class="form-group">
+          <label class="form-label">🏢 Company Name <span id="company-hint" style="font-size:10px;color:var(--text3);font-weight:400">(optional for retail, recommended for wholesale)</span></label>
+          <input class="form-input" name="company_name" id="cust-company" placeholder="e.g. Kuwait National Trading Co.">
+        </div>
+        <div class="form-group"><label class="form-label"><?= __('full_name') ?> (<?= __('arabic') ?>)</label><input class="form-input" name="name_ar" id="cust-name-ar" placeholder="أحمد المطيري" style="direction:rtl"></div>
         <div class="form-row">
           <div class="form-group"><label class="form-label"><?= __('email') ?></label><input class="form-input" name="email" id="cust-email" type="email" placeholder="email@example.com"></div>
           <div class="form-group"><label class="form-label"><?= __('type') ?></label>
@@ -174,15 +315,13 @@ require __DIR__ . '/includes/header.php';
             </select>
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label"><?= __('credit_limit') ?> (<?= $currency ?>)</label><input class="form-input" name="credit_limit" id="cust-limit" type="number" step="0.001" min="0" value="0"></div>
-        </div>
-        <div class="form-group"><label class="form-label"><?= __('address') ?></label><textarea class="form-textarea" name="address" id="cust-address"></textarea></div>
-        <div class="form-group"><label class="form-label"><?= __('address') ?> (<?= __('arabic') ?>)</label><textarea class="form-textarea" name="address_ar" id="cust-address-ar" placeholder="العنوان..." style="direction:rtl"></textarea></div>
+        <div class="form-group"><label class="form-label"><?= __('credit_limit') ?> (<?= $currency ?>)</label><input class="form-input" name="credit_limit" id="cust-limit" type="number" step="0.001" min="0" value="0"></div>
+        <div class="form-group"><label class="form-label"><?= __('address') ?> (EN)</label><textarea class="form-textarea" name="address" id="cust-address" rows="2"></textarea></div>
+        <div class="form-group"><label class="form-label"><?= __('address') ?> (<?= __('arabic') ?>)</label><textarea class="form-textarea" name="address_ar" id="cust-address-ar" placeholder="العنوان..." style="direction:rtl" rows="2"></textarea></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('customer-modal')"><?= __('cancel') ?></button>
-        <button type="submit" class="btn btn-primary" id="cust-submit-btn"><?= __('save') ?></button>
+        <button type="submit" class="btn btn-primary"><?= __('save') ?></button>
       </div>
     </form>
   </div>
@@ -195,35 +334,40 @@ function openAddCustomer() {
   document.getElementById("cust-action").value = "add";
   document.getElementById("cust-id").value = "";
   document.getElementById("cust-modal-title").textContent = "' . __('add') . ' ' . __('customer_name') . '";
-  document.getElementById("cust-submit-btn").textContent = "' . __('save') . '";
+  updateCompanyHint("retail");
   openModal("customer-modal");
 }
 function editCustomer(c) {
   document.getElementById("cust-action").value = "edit";
   document.getElementById("cust-id").value = c.id;
-  document.getElementById("cust-name").value = c.name;
+  document.getElementById("cust-name").value = c.name || "";
+  document.getElementById("cust-company").value = c.company_name || "";
   document.getElementById("cust-name-ar").value = c.name_ar || "";
   document.getElementById("cust-phone").value = c.phone || "";
   document.getElementById("cust-email").value = c.email || "";
-  document.getElementById("cust-type").value = c.type;
-  document.getElementById("cust-limit").value = parseFloat(c.credit_limit).toFixed(3);
+  document.getElementById("cust-type").value = c.type || "retail";
+  document.getElementById("cust-limit").value = parseFloat(c.credit_limit || 0).toFixed(3);
   document.getElementById("cust-address").value = c.address || "";
   document.getElementById("cust-address-ar").value = c.address_ar || "";
   document.getElementById("cust-modal-title").textContent = "' . __('edit') . ' ' . __('customer_name') . '";
-  document.getElementById("cust-submit-btn").textContent = "' . __('save') . '";
+  updateCompanyHint(document.getElementById("cust-type").value);
   openModal("customer-modal");
 }
-function printCustomers() {
-  const table = document.querySelector(".tbl-wrap table");
-  const win = window.open("","_blank");
-  win.document.write("<html><head><title>Customers</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0f2f5;font-weight:600}.header{text-align:center;margin-bottom:20px}</style></head><body>");
-  win.document.write("<div class=header><h2>RetailPro — Customer List</h2></div>");
-  const clone = table.cloneNode(true);
-  clone.querySelectorAll("tr").forEach(row => { const cells = row.querySelectorAll("th,td"); if(cells.length>=9) cells[cells.length-1].remove(); });
-  win.document.write(clone.outerHTML);
-  win.document.write("</body></html>");
-  win.document.close();
-  win.print();
+document.getElementById("cust-type").addEventListener("change", function() {
+  updateCompanyHint(this.value);
+});
+function updateCompanyHint(type) {
+  const hint = document.getElementById("company-hint");
+  const input = document.getElementById("cust-company");
+  if (type === "wholesale") {
+    hint.textContent = "(important for wholesale customers — shown on invoices)";
+    hint.style.color = "var(--amber)";
+    input.style.borderColor = "var(--amber)";
+  } else {
+    hint.textContent = "(optional for retail customers)";
+    hint.style.color = "var(--text3)";
+    input.style.borderColor = "";
+  }
 }
 </script>';
-require __DIR__ . '/includes/footer.php'; ?>
+require __DIR__ . '/includes/footer.php';
