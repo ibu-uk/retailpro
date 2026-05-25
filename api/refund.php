@@ -21,6 +21,16 @@ $stmt->execute([$invoice_id]);
 $inv = $stmt->fetch();
 if (!$inv) json_response(['error' => 'Invoice not found'], 404);
 
+// ── Refund period check ───────────────────────────────────────────────────
+$refund_days = (int)get_setting('refund_period_days', '0');
+if ($refund_days > 0) {
+    $days_since = (int)((time() - strtotime($inv['created_at'])) / 86400);
+    if ($days_since > $refund_days) {
+        $inv_date_fmt = date('d M Y', strtotime($inv['created_at']));
+        json_response(['error' => "Refund period expired. Returns are only accepted within {$refund_days} days of purchase (Invoice date: {$inv_date_fmt})"], 400);
+    }
+}
+
 $db->beginTransaction();
 try {
     $refund_total = 0;
@@ -50,13 +60,25 @@ try {
             $db->prepare("UPDATE invoice_items SET qty=?, total=? WHERE id=?")->execute([$new_qty, $new_total, $item_id]);
         }
 
-        // Return stock
-        $db->prepare("UPDATE stock SET qty = qty + ? WHERE product_id = ? AND branch_id = ?")->execute([$qty_return, $ii['product_id'], $inv['branch_id']]);
+        // Return stock — use stock_deduct if available (pack unit system)
+        // stock_deduct = actual pieces deducted during sale (e.g. 1 box sold = 12 pieces deducted)
+        $original_qty     = $ii['qty'];  // selling units (pairs, boxes, etc.)
+        $original_deduct  = (int)($ii['stock_deduct'] ?? $original_qty); // pieces actually taken
+        // Proportional pieces to restore: returning 1 of 2 boxes sold = restore half the pieces
+        $pieces_to_restore = $original_qty > 0
+            ? (int)round(($qty_return / $original_qty) * $original_deduct)
+            : $qty_return;
+        if ($pieces_to_restore < 1) $pieces_to_restore = $qty_return;
 
-        // Log stock movement
-        $db->prepare("INSERT INTO stock_movements (product_id,branch_id,type,qty,reference,notes,user_id) VALUES (?,?,'return',?,?,?,?)")->execute([
-            $ii['product_id'], $inv['branch_id'], $qty_return, $inv['invoice_number'], $reason, $user['id']
-        ]);
+        $db->prepare("UPDATE stock SET qty = qty + ? WHERE product_id = ? AND branch_id = ?")
+           ->execute([$pieces_to_restore, $ii['product_id'], $inv['branch_id']]);
+
+        // Log stock movement with clear note
+        $move_note = $pieces_to_restore !== $qty_return
+            ? "{$reason} — returned {$qty_return} units = {$pieces_to_restore} pieces back to stock"
+            : $reason;
+        $db->prepare("INSERT INTO stock_movements (product_id,branch_id,type,qty,reference,notes,user_id) VALUES (?,?,'return',?,?,?,?)")
+           ->execute([$ii['product_id'], $inv['branch_id'], $pieces_to_restore, $inv['invoice_number'], $move_note, $user['id']]);
     }
 
     if ($refund_total <= 0) {
@@ -85,8 +107,10 @@ try {
     }
 
     // Log the refund in payments table
-    $db->prepare("INSERT INTO payments (type,reference_id,amount,payment_mode,notes,created_by) VALUES ('customer',?,?,?,?,?)")->execute([
-        $inv['customer_id'], $refund_total, $refund_mode, 'Refund: ' . $inv['invoice_number'] . ' - ' . $reason, $user['id']
+    $db->prepare("INSERT INTO payments (type,reference_id,invoice_id,amount,payment_mode,notes,created_by) VALUES ('customer',?,?,?,?,?,?)")->execute([
+        $inv['customer_id'], $invoice_id, $refund_total,
+        in_array($refund_mode, ['cash','knet','wamd','transfer']) ? $refund_mode : 'cash',
+        'Refund: ' . $inv['invoice_number'] . ' - ' . $reason, $user['id']
     ]);
 
     $db->commit();

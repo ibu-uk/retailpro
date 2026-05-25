@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: May 21, 2026 at 08:34 AM
+-- Generation Time: May 24, 2026 at 08:08 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -43,7 +43,7 @@ CREATE TABLE `branches` (
 
 INSERT INTO `branches` (`id`, `name`, `address`, `phone`, `manager_name`, `is_active`, `created_at`) VALUES
 (1, 'Main Branch', 'Block 4, Shop 12, Salmiya, Kuwait', '+965 2244-1100', 'Ahmed Karim', 1, '2026-05-20 07:49:57'),
-(2, 'Al-Salmiya', 'Salmiya, Block 7, Shop 21, Kuwait', '+965 2211-4400', 'Sara Nasser', 1, '2026-05-20 07:49:57'),
+(2, 'Al-Salmiya', 'Salmiya, Block 7, Shop 21, Kuwait', '+965 2211-4402', 'Sara Nasser', 1, '2026-05-20 07:49:57'),
 (3, 'Hawalli', 'Hawalli, Block 8, Shop 3, Kuwait', '+965 2255-3300', 'Omar Nasser', 1, '2026-05-20 07:49:57'),
 (4, 'Farwaniya', 'Farwaniya, Block 2, Shop 15, Kuwait', '+965 2299-8800', 'Nadia Saad', 1, '2026-05-20 07:49:57');
 
@@ -67,28 +67,24 @@ CREATE TABLE `branch_categories` (
 INSERT INTO `branch_categories` (`id`, `branch_id`, `category_id`, `created_at`) VALUES
 (1, 1, 1, '2026-05-20 09:22:15'),
 (2, 2, 1, '2026-05-20 09:22:15'),
-(3, 3, 1, '2026-05-20 09:22:15'),
 (4, 4, 1, '2026-05-20 09:22:15'),
 (5, 1, 2, '2026-05-20 09:22:15'),
 (6, 2, 2, '2026-05-20 09:22:15'),
-(7, 3, 2, '2026-05-20 09:22:15'),
 (8, 4, 2, '2026-05-20 09:22:15'),
 (9, 1, 3, '2026-05-20 09:22:15'),
 (10, 2, 3, '2026-05-20 09:22:15'),
-(11, 3, 3, '2026-05-20 09:22:15'),
 (12, 4, 3, '2026-05-20 09:22:15'),
 (13, 1, 4, '2026-05-20 09:22:15'),
 (14, 2, 4, '2026-05-20 09:22:15'),
-(15, 3, 4, '2026-05-20 09:22:15'),
 (16, 4, 4, '2026-05-20 09:22:15'),
 (17, 1, 5, '2026-05-20 09:22:15'),
 (18, 2, 5, '2026-05-20 09:22:15'),
-(19, 3, 5, '2026-05-20 09:22:15'),
 (20, 4, 5, '2026-05-20 09:22:15'),
 (21, 1, 6, '2026-05-20 09:22:15'),
 (22, 2, 6, '2026-05-20 09:22:15'),
-(23, 3, 6, '2026-05-20 09:22:15'),
-(24, 4, 6, '2026-05-20 09:22:15');
+(24, 4, 6, '2026-05-20 09:22:15'),
+(33, 3, 4, '2026-05-21 11:35:53'),
+(34, 3, 1, '2026-05-21 11:35:53');
 
 -- --------------------------------------------------------
 
@@ -164,6 +160,7 @@ INSERT INTO `chart_of_accounts` (`id`, `code`, `name`, `name_ar`, `type`, `categ
 CREATE TABLE `customers` (
   `id` int(11) NOT NULL,
   `name` varchar(150) NOT NULL,
+  `company_name` varchar(150) DEFAULT NULL,
   `email` varchar(150) DEFAULT NULL,
   `phone` varchar(30) DEFAULT NULL,
   `type` enum('retail','wholesale') DEFAULT 'retail',
@@ -180,11 +177,13 @@ CREATE TABLE `customers` (
 -- Dumping data for table `customers`
 --
 
-INSERT INTO `customers` (`id`, `name`, `email`, `phone`, `type`, `credit_limit`, `balance`, `address`, `is_active`, `created_at`, `name_ar`, `address_ar`) VALUES
-(1, 'Walk-in Customer', '', '', 'retail', 0.000, 0.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
-(2, 'Ahmad Al-Mutairi', 'ahmad@email.com', '+965 9988-7766', 'retail', 1000.000, -840.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
-(3, 'Fatima Al-Rashidi', 'fatima@email.com', '+965 6677-5544', 'wholesale', 5000.000, 250.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
-(4, 'Kuwait National Co.', 'purchasing@knc.kw', '+965 2244-1100', 'wholesale', 20000.000, -4200.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL);
+INSERT INTO `customers` (`id`, `name`, `company_name`, `email`, `phone`, `type`, `credit_limit`, `balance`, `address`, `is_active`, `created_at`, `name_ar`, `address_ar`) VALUES
+(1, 'Walk-in Customer', NULL, '', '', 'retail', 0.000, 0.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
+(2, 'Ahmad Al-Mutairi', 'Khaleej Al-Kuwait', 'ahmad@email.com', '+965 9988-7766', 'retail', 1000.000, -996.000, 'kuwait city', 1, '2026-05-20 07:49:58', '', 'اسماة'),
+(3, 'Fatima Al-Rashidi', NULL, 'fatima@email.com', '+965 6677-5544', 'wholesale', 5000.000, 250.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
+(4, 'Kuwait National Co.', NULL, 'purchasing@knc.kw', '+965 2244-1100', 'wholesale', 20000.000, -4200.000, NULL, 1, '2026-05-20 07:49:58', NULL, NULL),
+(5, 'Mohamed ibrahim', NULL, '', '965-66680241', 'retail', 0.000, 0.000, '', 1, '2026-05-21 08:29:17', '', ''),
+(6, 'ismail usman', NULL, '', '55445533', 'retail', 0.000, 0.000, '', 1, '2026-05-21 11:12:56', '', '');
 
 -- --------------------------------------------------------
 
@@ -246,9 +245,13 @@ CREATE TABLE `invoices` (
 --
 
 INSERT INTO `invoices` (`id`, `invoice_number`, `customer_id`, `branch_id`, `sale_type`, `payment_mode`, `subtotal`, `discount`, `vat`, `total`, `paid_amount`, `status`, `notes`, `created_by`, `created_at`, `updated_at`) VALUES
-(1, 'INV-2025-0001', 2, 1, 'retail', 'cash', 25.000, 0.000, 1.250, 26.250, 26.250, 'paid', NULL, 3, '2026-05-20 07:49:58', '2026-05-20 07:49:58'),
+(1, 'INV-2025-0001', 2, 1, 'retail', 'cash', 25.000, 0.000, 1.250, 0.000, 0.000, 'refunded', NULL, 3, '2026-05-20 07:49:58', '2026-05-21 10:43:56'),
 (2, 'INV-2025-0002', 3, 1, 'wholesale', 'knet', 60.000, 0.000, 3.000, 63.000, 63.000, 'paid', NULL, 3, '2026-05-20 07:49:58', '2026-05-20 07:49:58'),
-(3, 'INV-2025-0003', 4, 1, 'credit', 'credit', 200.000, 0.000, 10.000, 210.000, 0.000, 'credit', NULL, 3, '2026-05-20 07:49:58', '2026-05-20 07:49:58');
+(3, 'INV-2025-0003', 4, 1, 'credit', 'credit', 200.000, 0.000, 10.000, 210.000, 0.000, 'credit', NULL, 3, '2026-05-20 07:49:58', '2026-05-20 07:49:58'),
+(5, 'INV-2026-0004', 5, 1, 'retail', 'knet', 33.000, 15.000, 0.000, 0.000, 0.000, 'refunded', NULL, 1, '2026-05-21 08:29:42', '2026-05-21 10:18:47'),
+(7, 'INV-2026-0005', 5, 1, 'retail', 'cash', 17.000, 2.000, 0.000, 0.000, 0.000, 'refunded', NULL, 1, '2026-05-21 10:46:02', '2026-05-21 10:57:04'),
+(8, 'INV-2026-0006', 2, 1, 'retail', 'credit', 156.000, 0.000, 0.000, 156.000, 0.000, 'credit', NULL, 1, '2026-05-21 11:07:13', '2026-05-21 11:07:13'),
+(9, 'INV-2026-0007', 6, 1, 'retail', 'cash', 39.000, 0.000, 0.000, 18.000, 18.000, 'paid', NULL, 1, '2026-05-21 11:13:12', '2026-05-21 13:14:31');
 
 -- --------------------------------------------------------
 
@@ -274,11 +277,15 @@ CREATE TABLE `invoice_items` (
 --
 
 INSERT INTO `invoice_items` (`id`, `invoice_id`, `product_id`, `qty`, `unit_price`, `disc_pct`, `discount`, `total`, `batch_id`, `supplier_id`) VALUES
-(1, 1, 1, 1, 25.000, 0.00, 0.000, 25.000, NULL, NULL),
 (2, 2, 3, 5, 12.000, 0.00, 0.000, 60.000, NULL, NULL),
 (3, 3, 9, 4, 15.000, 0.00, 0.000, 60.000, NULL, NULL),
 (4, 3, 1, 2, 25.000, 0.00, 0.000, 50.000, NULL, NULL),
-(5, 3, 3, 5, 12.000, 0.00, 0.000, 60.000, NULL, NULL);
+(5, 3, 3, 5, 12.000, 0.00, 0.000, 60.000, NULL, NULL),
+(11, 8, 3, 2, 12.000, 0.00, 0.000, 24.000, NULL, NULL),
+(12, 8, 11, 2, 9.000, 0.00, 0.000, 18.000, NULL, NULL),
+(13, 8, 7, 3, 18.000, 0.00, 0.000, 54.000, NULL, NULL),
+(14, 8, 2, 2, 30.000, 0.00, 0.000, 60.000, NULL, NULL),
+(17, 9, 7, 1, 18.000, 0.00, 0.000, 18.000, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -329,7 +336,7 @@ CREATE TABLE `offers` (
 --
 
 INSERT INTO `offers` (`id`, `title`, `description`, `type`, `discount_value`, `promo_code`, `applies_to`, `start_date`, `end_date`, `usage_limit`, `usage_count`, `is_active`, `created_at`, `min_purchase`, `max_discount`) VALUES
-(1, 'Summer Sale 2025', '20% off all Bags', 'percent', 20.000, NULL, '1', '2025-01-15', '2025-01-31', 100, 65, 1, '2026-05-20 07:49:58', 0.000, 0.000),
+(1, 'Summer Sale 2025', '20% off all Bags', 'percent', 20.000, '', '1', '2025-01-15', '2026-12-31', 100, 65, 1, '2026-05-20 07:49:58', 0.000, 0.000),
 (2, 'Buy 1 Get 1 Free', 'T-Shirts & Caps', 'bogo', 0.000, NULL, '3', '2025-01-10', '2025-01-20', 100, 40, 1, '2026-05-20 07:49:58', 0.000, 0.000),
 (3, 'Eid Special Bundle', '15% off — Code EID2025', 'promo_code', 15.000, NULL, 'all', '2025-02-01', '2025-02-28', 200, 0, 1, '2026-05-20 07:49:58', 0.000, 0.000);
 
@@ -350,6 +357,17 @@ CREATE TABLE `payments` (
   `created_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `payments`
+--
+
+INSERT INTO `payments` (`id`, `type`, `reference_id`, `invoice_id`, `amount`, `payment_mode`, `notes`, `created_by`, `created_at`) VALUES
+(1, 'customer', 5, NULL, 33.000, 'cash', 'Refund: INV-2026-0004 - Customer return', 1, '2026-05-21 10:18:47'),
+(2, 'customer', 2, NULL, 25.000, 'cash', 'Refund: INV-2025-0001 - Customer return', 1, '2026-05-21 10:43:56'),
+(3, 'customer', 5, NULL, 8.500, 'cash', 'Refund: INV-2026-0005 - Customer return', 1, '2026-05-21 10:46:52'),
+(4, 'customer', 5, NULL, 8.500, 'cash', 'Refund: INV-2026-0005 - Customer return', 1, '2026-05-21 10:57:04'),
+(5, 'customer', 6, NULL, 21.000, 'cash', 'Refund: INV-2026-0007 - Customer return', 1, '2026-05-21 13:14:31');
 
 -- --------------------------------------------------------
 
@@ -501,8 +519,13 @@ INSERT INTO `settings` (`id`, `setting_key`, `setting_value`, `updated_at`) VALU
 (6, 'vat_rate', '5', '2026-05-20 07:49:58'),
 (7, 'invoice_prefix', 'INV-', '2026-05-20 07:49:58'),
 (8, 'invoice_footer', 'Thank you for shopping with RetailPro. Returns accepted within 7 days with receipt.', '2026-05-20 07:49:58'),
-(9, 'tax_type', 'exclusive', '2026-05-20 07:49:58'),
-(10, 'app_version', '2.4.0', '2026-05-20 07:49:58');
+(9, 'tax_type', 'none', '2026-05-21 12:19:47'),
+(10, 'app_version', '2.4.0', '2026-05-20 07:49:58'),
+(11, 'country_code', 'AE', '2026-05-21 12:21:54'),
+(12, 'currency_decimals', '3', '2026-05-21 12:19:47'),
+(13, 'tax_rate', '0', '2026-05-21 12:19:47'),
+(14, 'tax_label', '', '2026-05-21 12:19:47'),
+(15, 'tax_inclusive', '0', '2026-05-21 12:19:47');
 
 -- --------------------------------------------------------
 
@@ -522,15 +545,15 @@ CREATE TABLE `stock` (
 --
 
 INSERT INTO `stock` (`id`, `product_id`, `branch_id`, `qty`) VALUES
-(1, 1, 1, 18),
+(1, 1, 1, 19),
 (2, 1, 2, 5),
 (3, 1, 3, 2),
 (4, 1, 4, 1),
-(5, 2, 1, 12),
+(5, 2, 1, 10),
 (6, 2, 2, 8),
 (7, 2, 3, 3),
 (8, 2, 4, 2),
-(9, 3, 1, 85),
+(9, 3, 1, 83),
 (10, 3, 2, 40),
 (11, 3, 3, 20),
 (12, 3, 4, 15),
@@ -546,7 +569,7 @@ INSERT INTO `stock` (`id`, `product_id`, `branch_id`, `qty`) VALUES
 (22, 6, 2, 5),
 (23, 6, 3, 1),
 (24, 6, 4, 0),
-(25, 7, 1, 53),
+(25, 7, 1, 49),
 (26, 7, 2, 8),
 (27, 7, 3, 4),
 (28, 7, 4, 2),
@@ -562,7 +585,7 @@ INSERT INTO `stock` (`id`, `product_id`, `branch_id`, `qty`) VALUES
 (38, 10, 2, 20),
 (39, 10, 3, 10),
 (40, 10, 4, 8),
-(41, 11, 1, 55),
+(41, 11, 1, 53),
 (42, 11, 2, 25),
 (43, 11, 3, 12),
 (44, 11, 4, 8),
@@ -637,7 +660,26 @@ INSERT INTO `stock_movements` (`id`, `product_id`, `branch_id`, `type`, `qty`, `
 (5, 4, 1, 'return', 1, 'RET-0041', NULL, 3, '2026-05-20 07:49:58', NULL, NULL, NULL),
 (6, 7, 1, 'in', 50, 'BTCH-20260520-44CE1', 'Received from supplier — Batch BTCH-20260520-44CE1', 1, '2026-05-20 13:20:16', 1, 2, '2027-05-20'),
 (7, 7, 1, 'out', -1, 'INV-2026-0004', NULL, 1, '2026-05-20 13:22:45', NULL, NULL, NULL),
-(8, 7, 1, 'return', 1, 'INV-2026-0004', 'Invoice deleted', 1, '2026-05-20 13:29:50', NULL, NULL, NULL);
+(8, 7, 1, 'return', 1, 'INV-2026-0004', 'Invoice deleted', 1, '2026-05-20 13:29:50', NULL, NULL, NULL),
+(9, 7, 1, 'out', -1, 'INV-2026-0004', NULL, 1, '2026-05-21 08:29:42', NULL, NULL, NULL),
+(10, 9, 1, 'out', -1, 'INV-2026-0004', NULL, 1, '2026-05-21 08:29:42', NULL, NULL, NULL),
+(11, 8, 1, 'out', -3, 'INV-2026-0005', NULL, 1, '2026-05-21 08:44:42', NULL, NULL, NULL),
+(12, 8, 1, 'return', 3, 'INV-2026-0005', 'Invoice deleted', 1, '2026-05-21 08:45:31', NULL, NULL, NULL),
+(13, 7, 1, 'return', 1, 'INV-2026-0004', 'Customer return', 1, '2026-05-21 10:18:47', NULL, NULL, NULL),
+(14, 9, 1, 'return', 1, 'INV-2026-0004', 'Customer return', 1, '2026-05-21 10:18:47', NULL, NULL, NULL),
+(15, 1, 1, 'return', 1, 'INV-2025-0001', 'Customer return', 1, '2026-05-21 10:43:56', NULL, NULL, NULL),
+(16, 8, 1, 'out', -2, 'INV-2026-0005', NULL, 1, '2026-05-21 10:46:02', NULL, NULL, NULL),
+(17, 8, 1, 'return', 1, 'INV-2026-0005', 'Customer return', 1, '2026-05-21 10:46:52', NULL, NULL, NULL),
+(18, 8, 1, 'return', 1, 'INV-2026-0005', 'Customer return', 1, '2026-05-21 10:57:04', NULL, NULL, NULL),
+(19, 3, 1, 'out', -2, 'INV-2026-0006', NULL, 1, '2026-05-21 11:07:13', NULL, NULL, NULL),
+(20, 11, 1, 'out', -2, 'INV-2026-0006', NULL, 1, '2026-05-21 11:07:13', NULL, NULL, NULL),
+(21, 7, 1, 'out', -3, 'INV-2026-0006', NULL, 1, '2026-05-21 11:07:13', NULL, NULL, NULL),
+(22, 2, 1, 'out', -2, 'INV-2026-0006', NULL, 1, '2026-05-21 11:07:13', NULL, NULL, NULL),
+(23, 11, 1, 'out', -1, 'INV-2026-0007', NULL, 1, '2026-05-21 11:13:12', NULL, NULL, NULL),
+(24, 3, 1, 'out', -1, 'INV-2026-0007', NULL, 1, '2026-05-21 11:13:12', NULL, NULL, NULL),
+(25, 7, 1, 'out', -1, 'INV-2026-0007', NULL, 1, '2026-05-21 11:13:12', NULL, NULL, NULL),
+(26, 11, 1, 'return', 1, 'INV-2026-0007', 'Customer return', 1, '2026-05-21 13:14:31', NULL, NULL, NULL),
+(27, 3, 1, 'return', 1, 'INV-2026-0007', 'Customer return', 1, '2026-05-21 13:14:31', NULL, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -722,10 +764,11 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `name`, `email`, `password`, `role`, `branch_id`, `is_active`, `last_login`, `created_at`) VALUES
-(1, 'Super Admin', 'admin@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'super_admin', NULL, 1, '2026-05-21 06:32:22', '2026-05-20 07:49:57'),
+(1, 'Super Admin', 'admin@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'super_admin', NULL, 1, '2026-05-21 12:20:14', '2026-05-20 07:49:57'),
 (2, 'Ahmed Karim', 'a.karim@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'manager', 1, 1, NULL, '2026-05-20 07:49:57'),
 (3, 'Cashier POS', 'cashier@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'cashier', 1, 1, NULL, '2026-05-20 07:49:57'),
-(4, 'Inventory Staff', 'inventory@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'inventory', NULL, 1, NULL, '2026-05-20 07:49:57');
+(4, 'Inventory Staff', 'inventory@retailpro.kw', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'inventory', NULL, 1, NULL, '2026-05-20 07:49:57'),
+(5, 'mohamed ibrahim', 'ibrahim_uk10@yahoo.com', '$2y$10$dQSMIs4HB7Ofj2n8KiE2o.eyep5cgJDeJA7n/mgYb7mDBk3D2x6N.', 'manager', 3, 1, '2026-05-21 11:48:16', '2026-05-21 11:33:50');
 
 --
 -- Indexes for dumped tables
@@ -918,7 +961,7 @@ ALTER TABLE `branches`
 -- AUTO_INCREMENT for table `branch_categories`
 --
 ALTER TABLE `branch_categories`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- AUTO_INCREMENT for table `categories`
@@ -936,7 +979,7 @@ ALTER TABLE `chart_of_accounts`
 -- AUTO_INCREMENT for table `customers`
 --
 ALTER TABLE `customers`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `expenses`
@@ -948,13 +991,13 @@ ALTER TABLE `expenses`
 -- AUTO_INCREMENT for table `invoices`
 --
 ALTER TABLE `invoices`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `invoice_items`
 --
 ALTER TABLE `invoice_items`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
 
 --
 -- AUTO_INCREMENT for table `journal_entries`
@@ -972,7 +1015,7 @@ ALTER TABLE `offers`
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `products`
@@ -1002,7 +1045,7 @@ ALTER TABLE `purchase_order_items`
 -- AUTO_INCREMENT for table `settings`
 --
 ALTER TABLE `settings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
 
 --
 -- AUTO_INCREMENT for table `stock`
@@ -1020,7 +1063,7 @@ ALTER TABLE `stock_batches`
 -- AUTO_INCREMENT for table `stock_movements`
 --
 ALTER TABLE `stock_movements`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `suppliers`
@@ -1038,7 +1081,7 @@ ALTER TABLE `units`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- Constraints for dumped tables

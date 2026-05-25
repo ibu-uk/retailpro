@@ -211,6 +211,11 @@ require __DIR__ . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:10px">
+  <a href="<?= BASE ?>/api/export_batches.php" class="btn btn-ghost btn-sm">📊 Excel</a>
+  <button type="button" class="btn btn-ghost btn-sm" onclick="printBatches()">🖨️ Print</button>
+</div>
+
 <div class="tabs">
   <div class="tab <?= $tab==='batches'?'active':'' ?>" onclick="switchTab('tab-batches',this)">📦 Batches</div>
   <div class="tab <?= $tab==='receive'?'active':'' ?>" onclick="switchTab('tab-receive',this)">📥 Receive Stock</div>
@@ -693,6 +698,33 @@ function fillPriceModal(pp) {
   document.getElementById("pm-pref").checked   = pp.is_preferred == 1;
   document.getElementById("pm-notes").value    = pp.notes || "";
   openModal("price-modal");
+}
+
+// Print function
+const COMPANY_NAME_B = "' . htmlspecialchars(get_setting('company_name', APP_NAME)) . '";
+function printBatches() {
+  // Find which tab is visible
+  const tabs = ["tab-batches","tab-expiry","tab-prices","tab-trace"];
+  let activeTable = null;
+  let activeTitle = "Batches Report";
+  tabs.forEach(function(t) {
+    const el = document.getElementById(t);
+    if (el && el.style.display !== "none") {
+      activeTable = el.querySelector("table");
+      if (t === "tab-batches")  activeTitle = "Batches Report";
+      if (t === "tab-expiry")   activeTitle = "Expiry Tracking";
+      if (t === "tab-prices")   activeTitle = "Supplier Prices";
+      if (t === "tab-trace")    activeTitle = "Traceability Report";
+    }
+  });
+  if (!activeTable) { alert("No table to print on this tab."); return; }
+  const win = window.open("","_blank");
+  win.document.write("<html><head><title>" + activeTitle + "</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0f2f5;font-weight:600}.header{text-align:center;margin-bottom:20px}</style></head><body>");
+  win.document.write("<div class=header><h2>" + COMPANY_NAME_B + " — " + activeTitle + "</h2><p>Generated: " + new Date().toLocaleDateString() + "</p></div>");
+  win.document.write(activeTable.outerHTML);
+  win.document.write("</body></html>");
+  win.document.close();
+  win.print();
 }
 
 // Traceability AJAX

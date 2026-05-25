@@ -28,7 +28,7 @@ $rev = $r->fetch();
 
 // FIX: exclude refunded invoices from COGS
 $cogs_r = $db->prepare("
-  SELECT COALESCE(SUM(ii.qty * p.cost_price),0) as c
+  SELECT COALESCE(SUM(COALESCE(ii.stock_deduct,ii.qty) * p.cost_price),0) as c
   FROM invoice_items ii
   JOIN invoices inv ON inv.id = ii.invoice_id
   JOIN products p   ON p.id  = ii.product_id
@@ -54,7 +54,7 @@ $np_margin    = $rev['s'] > 0 ? round($net_profit   / $rev['s'] * 100, 1) : 0;
 //      Simpler accurate approach: total paid_amount ever collected on invoices.
 $cash_from_invoices = $db->query("SELECT COALESCE(SUM(paid_amount),0) FROM invoices WHERE status != 'refunded'")->fetchColumn();
 // Payments received from customers (for credit invoice settlements)
-$cash_from_payments = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='customer'")->fetchColumn();
+$cash_from_payments = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='customer' AND notes NOT LIKE 'Refund:%'")->fetchColumn();
 // Deduct payments made to suppliers and expenses (outflows) to get net cash
 $cash_paid_suppliers_all = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='supplier'")->fetchColumn();
 $cash_paid_expenses_all  = $db->query("SELECT COALESCE(SUM(amount),0) FROM expenses")->fetchColumn();
@@ -63,8 +63,9 @@ $cash_paid_expenses_all  = $db->query("SELECT COALESCE(SUM(amount),0) FROM expen
 // subsequent settlements on credit invoices. Avoid double-counting by using:
 // Cash = paid_amount on invoices (cash+knet+wamd+transfer modes) + payments on credit invoices
 $cash_direct   = $db->query("SELECT COALESCE(SUM(paid_amount),0) FROM invoices WHERE payment_mode != 'credit' AND status != 'refunded'")->fetchColumn();
-$cash_credit   = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='customer'")->fetchColumn();
-$cash_position = ($cash_direct + $cash_credit) - $cash_paid_suppliers_all - $cash_paid_expenses_all;
+$cash_credit   = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='customer' AND notes NOT LIKE 'Refund:%'")->fetchColumn();
+$cash_refunds_all = $db->query("SELECT COALESCE(SUM(amount),0) FROM payments WHERE type='customer' AND payment_mode != 'credit' AND notes LIKE 'Refund:%'")->fetchColumn();
+$cash_position = ($cash_direct + $cash_credit) - $cash_paid_suppliers_all - $cash_paid_expenses_all - $cash_refunds_all;
 
 $ar_balance    = $db->query("SELECT COALESCE(SUM(ABS(balance)),0) FROM customers WHERE balance < 0")->fetchColumn();
 $inventory_val = $db->query("SELECT COALESCE(SUM(s.qty * p.cost_price),0) FROM stock s JOIN products p ON p.id=s.product_id")->fetchColumn();
@@ -73,7 +74,7 @@ $ap_balance    = $db->query("SELECT COALESCE(SUM(ABS(balance)),0) FROM suppliers
 // FIX: Equity is NOT derived circularly from Assets - Liabilities.
 // Use accumulated net profit as a proxy for owner's equity (simple single-entity model).
 $all_time_revenue  = $db->query("SELECT COALESCE(SUM(total - discount),0) FROM invoices WHERE status != 'refunded'")->fetchColumn();
-$all_time_cogs     = $db->query("SELECT COALESCE(SUM(ii.qty * p.cost_price),0) FROM invoice_items ii JOIN invoices inv ON inv.id=ii.invoice_id JOIN products p ON p.id=ii.product_id WHERE inv.status != 'refunded'")->fetchColumn();
+$all_time_cogs     = $db->query("SELECT COALESCE(SUM(COALESCE(ii.stock_deduct,ii.qty) * p.cost_price),0) FROM invoice_items ii JOIN invoices inv ON inv.id=ii.invoice_id JOIN products p ON p.id=ii.product_id WHERE inv.status != 'refunded'")->fetchColumn();
 $all_time_expenses = $db->query("SELECT COALESCE(SUM(amount),0) FROM expenses")->fetchColumn();
 $retained_earnings = $all_time_revenue - $all_time_cogs - $all_time_expenses;
 
@@ -90,7 +91,7 @@ $cf_direct = $db->prepare("SELECT COALESCE(SUM(paid_amount),0) as c FROM invoice
 $cf_direct->execute([$date_from, $date_to]);
 $cash_in_direct = $cf_direct->fetch()['c'];
 
-$cf_credit = $db->prepare("SELECT COALESCE(SUM(amount),0) as c FROM payments WHERE type='customer' AND DATE(created_at) BETWEEN ? AND ?");
+$cf_credit = $db->prepare("SELECT COALESCE(SUM(amount),0) as c FROM payments WHERE type='customer' AND notes NOT LIKE 'Refund:%' AND DATE(created_at) BETWEEN ? AND ?");
 $cf_credit->execute([$date_from, $date_to]);
 $cash_in_credit = $cf_credit->fetch()['c'];
 
@@ -104,7 +105,12 @@ $cash_out_sup_r = $db->prepare("SELECT COALESCE(SUM(amount),0) as c FROM payment
 $cash_out_sup_r->execute([$date_from, $date_to]);
 $cash_out_sup = $cash_out_sup_r->fetch()['c'];
 
-$net_cash = $cash_in - $cash_out_exp - $cash_out_sup;
+// Refunds paid out to customers (cash/card only, not store credit)
+$cash_out_ref_r = $db->prepare("SELECT COALESCE(SUM(amount),0) as c FROM payments WHERE type='customer' AND payment_mode != 'credit' AND notes LIKE 'Refund:%' AND DATE(created_at) BETWEEN ? AND ?");
+$cash_out_ref_r->execute([$date_from, $date_to]);
+$cash_out_refunds = $cash_out_ref_r->fetch()['c'];
+
+$net_cash = $cash_in - $cash_out_exp - $cash_out_sup - $cash_out_refunds;
 
 // ── Monthly trend for chart ──
 // FIX: exclude refunded invoices from monthly revenue
@@ -294,6 +300,7 @@ html[dir="rtl"] .acct-amount{text-align:left}
       <tr style="background:rgba(239,68,68,.03)"><td colspan="2" style="padding:6px 24px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase">Outflows</td></tr>
       <tr><td style="padding:8px 24px"><?= __('cash_paid_expenses') ?: 'Cash Paid for Expenses' ?></td><td style="padding:8px 16px;text-align:right;color:var(--red)">( <?= fmt_money($cash_out_exp) ?> )</td></tr>
       <tr><td style="padding:8px 24px"><?= __('cash_paid_suppliers') ?: 'Cash Paid to Suppliers' ?></td><td style="padding:8px 16px;text-align:right;color:var(--red)">( <?= fmt_money($cash_out_sup) ?> )</td></tr>
+      <tr><td style="padding:8px 24px">Refunds Paid to Customers</td><td style="padding:8px 16px;text-align:right;color:var(--red)">( <?= fmt_money($cash_out_refunds ?? 0) ?> )</td></tr>
       <tr style="border-top:2px solid var(--border)"><td style="padding:12px 16px;font-weight:800;font-size:15px"><?= __('net_cash_flow') ?: 'Net Cash Flow' ?></td>
         <td style="padding:12px 16px;text-align:right;font-weight:800;font-size:15px;color:<?= $net_cash >= 0 ? 'var(--green)' : 'var(--red)' ?>"><?= fmt_money($net_cash) ?></td>
       </tr>

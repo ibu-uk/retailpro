@@ -127,6 +127,18 @@ function next_po_number(): string {
     return 'PO-' . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
 }
 
+function next_quote_number(): string {
+    $prefix = get_setting('quote_prefix', 'QUO-');
+    // Graceful fallback: if table doesn't exist yet, use 0001
+    try {
+        $stmt = db()->query("SELECT COUNT(*) as cnt FROM quotations");
+        $cnt = $stmt->fetch()['cnt'] + 1;
+    } catch (Exception $e) {
+        $cnt = 1;
+    }
+    return $prefix . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+}
+
 // JSON response helper for API calls
 function json_response(array $data, int $code = 200): void {
     http_response_code($code);

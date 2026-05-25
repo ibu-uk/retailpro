@@ -398,6 +398,7 @@ html[dir="rtl"] .toast.warning{border-left:none;border-right:3px solid var(--amb
       <div class="nav-label"><?= __('nav_finance') ?></div>
       <?php if (has_role('super_admin')): ?>
       <a class="nav-item <?= $current_page==='purchases'?'active':'' ?>" href="<?= BASE ?>/purchases.php"><span class="nav-icon">🛒</span> <?= __('nav_purchases') ?></a>
+      <a class="nav-item <?= $current_page==='quotations'?'active':'' ?>" href="<?= BASE ?>/quotations.php"><span class="nav-icon">📋</span> Quotations</a>
       <?php endif; ?>
       <a class="nav-item <?= $current_page==='payments'?'active':'' ?>" href="<?= BASE ?>/payments.php">
         <span class="nav-icon">💳</span> <?= __('nav_payments') ?>
@@ -449,14 +450,6 @@ html[dir="rtl"] .toast.warning{border-left:none;border-right:3px solid var(--amb
   </div>
   <div id="content">
 
-<?php
-// Show success / error alerts from URL params
-if (!empty($_GET['success'])): ?>
-<div class="alert alert-success">✅ <?= htmlspecialchars($_GET['success']) ?></div>
-<?php endif;
-if (!empty($_GET['error'])): ?>
-<div class="alert alert-error">❌ <?= htmlspecialchars($_GET['error']) ?></div>
-<?php endif; ?>
 
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
@@ -474,6 +467,18 @@ function showToast(title, msg, type) {
   document.getElementById('toast-container').appendChild(t);
   setTimeout(function() { t.style.opacity='0'; t.style.transform='translateX(60px)'; t.style.transition='all .3s'; setTimeout(function(){t.remove()},300); }, 3500);
 }
+
+// Auto-dismiss alert banners after 3 seconds
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.alert').forEach(function(el) {
+    setTimeout(function() {
+      el.style.transition = 'opacity .4s, transform .4s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-8px)';
+      setTimeout(function() { el.remove(); }, 400);
+    }, 3000);
+  });
+});
 
 // ── Modals ──
 function openModal(id) {

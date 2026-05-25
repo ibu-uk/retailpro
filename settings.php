@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // --- Save invoice settings ---
     if ($action === 'save_invoice') {
-        foreach (['invoice_prefix','invoice_footer','printer_format'] as $f) {
+        foreach (['invoice_prefix','invoice_footer','printer_format','refund_period_days'] as $f) {
             if (isset($_POST[$f])) { $v=trim($_POST[$f]); $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$f,$v,$v]); }
         }
         $sli = isset($_POST['show_logo_in_invoice']) ? '1' : '0';
@@ -296,6 +296,11 @@ require __DIR__ . '/includes/header.php';
         <option value="a4"      <?= ($s['printer_format']??'a4')==='a4'?'selected':'' ?>>A4 (Standard)</option>
         <option value="thermal" <?= ($s['printer_format']??'a4')==='thermal'?'selected':'' ?>>Thermal (80mm)</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Refund period (days)</label>
+      <input class="form-input" type="number" name="refund_period_days" min="0" max="365" value="<?= (int)($s['refund_period_days'] ?? 0) ?>" style="max-width:160px">
+      <span style="font-size:11px;color:var(--text3);display:block;margin-top:4px">Number of days a customer can return items after purchase. Set to <strong>0</strong> to allow refunds at any time.</span>
     </div>
     <button type="submit" class="btn btn-primary">💾 <?= __('save') ?></button>
   </form>

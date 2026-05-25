@@ -24,7 +24,9 @@ $inv = $stmt->fetch();
 if (!$inv) die('Invoice not found');
 
 $stmt = $db->prepare("
-  SELECT ii.*, p.name, p.name_ar, p.sku
+  SELECT ii.*, p.name, p.name_ar, p.sku,
+         COALESCE(ii.unit_label,'') as unit_label,
+         COALESCE(ii.stock_deduct,0) as stock_deduct
   FROM invoice_items ii
   JOIN products p ON p.id = ii.product_id
   WHERE ii.invoice_id = ?
@@ -35,7 +37,8 @@ $items = $stmt->fetchAll();
 $company_name = get_setting('company_name', get_setting('company_name', APP_NAME));
 $company_address = get_setting('address', 'Block 4, Shop 12, Salmiya, Kuwait');
 $company_phone = get_setting('phone', '+965 2244-1100');
-$invoice_footer = get_setting('invoice_footer', '');
+$invoice_footer    = get_setting('invoice_footer', '');
+$refund_days       = (int)get_setting('refund_period_days', 0);
 $company_logo = get_setting('company_logo');
 $show_logo = get_setting('show_logo_in_invoice') === '1';
 $tc        = get_tax_config();
@@ -53,132 +56,102 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
   <title>Invoice <?= htmlspecialchars($inv['invoice_number']) ?></title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Arial', sans-serif; font-size: 12px; color: #333; padding: 20px; background: #f5f5f5; }
-    .invoice { max-width: 800px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
-    .company-info h1 { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-    .company-info .arabic { font-family: 'Arial', sans-serif; font-size: 16px; color: #666; direction: rtl; }
-    .company-info p { margin: 2px 0; color: #666; }
-    .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 28px; font-weight: bold; color: #333; }
-    .invoice-title .arabic { font-size: 18px; direction: rtl; color: #666; margin-top: 5px; }
-    .invoice-title p { margin: 5px 0; color: #666; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-    .section-title { font-weight: bold; margin-bottom: 10px; font-size: 13px; color: #333; }
-    .section-title .arabic { font-size: 12px; direction: rtl; color: #666; }
-    .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-    .info-label { color: #666; }
-    .info-label .arabic { direction: rtl; }
-    .info-value { font-weight: 500; }
-    .info-value .arabic { direction: rtl; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-    th { background: #f8f9fa; font-weight: bold; font-size: 12px; }
-    th .arabic { direction: rtl; font-size: 11px; }
-    td .arabic { display: block; font-size: 11px; color: #666; direction: rtl; }
-    .text-right { text-align: right; }
-    .totals { margin-left: auto; width: 250px; }
-    .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-    .total-row:last-child { border-bottom: none; border-top: 2px solid #333; margin-top: 5px; padding-top: 10px; font-weight: bold; font-size: 14px; }
-    .total-label .arabic { direction: rtl; font-size: 11px; color: #666; }
-    .status-badge { padding: 4px 12px; border-radius: 4px; font-weight: bold; font-size: 11px; text-transform: uppercase; }
-    .status-paid { background: #d4edda; color: #155724; }
-    .status-partial { background: #fff3cd; color: #856404; }
-    .status-credit { background: #f8d7da; color: #721c24; }
-    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666; font-size: 11px; }
-    .footer .arabic { direction: rtl; display: block; margin-top: 5px; }
-    @media print { body { background: white; padding: 0; } .invoice { box-shadow: none; max-width: 100%; } }
-    /* Thermal printer format */
-    .thermal .invoice { max-width: 80mm; padding: 10px; font-size: 10px; }
-    .thermal .header { flex-direction: column; align-items: center; text-align: center; }
-    .thermal .invoice-title { text-align: center; margin-top: 15px; }
-    .thermal .grid-2 { grid-template-columns: 1fr; gap: 10px; }
-    .thermal table th, .thermal table td { padding: 6px 8px; font-size: 10px; }
-    .thermal .totals { width: 100%; }
+    body { font-family: 'Courier New', Courier, monospace; background: #e0e0e0; display: flex; justify-content: center; padding: 20px; }
+    .receipt { background: #fff; width: 320px; padding: 16px 14px; font-size: 11px; color: #000; line-height: 1.5; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+    .logo { display: block; margin: 0 auto 8px; max-height: 60px; max-width: 80px; }
+    .company-name { font-size: 13px; font-weight: bold; margin-bottom: 2px; }
+    .company-arabic { font-size: 11px; direction: rtl; }
+    .company-addr { font-size: 10px; color: #333; margin-top: 2px; }
+    .info-table { width: 100%; border-collapse: collapse; margin: 4px 0; }
+    .info-table td { padding: 1px 0; vertical-align: top; font-size: 11px; }
+    .info-table td:first-child { width: 55%; }
+    .info-table td:last-child { text-align: right; font-weight: bold; }
+    .items-table { width: 100%; border-collapse: collapse; margin: 4px 0; font-size: 10.5px; }
+    .items-table th { font-weight: bold; padding: 2px 0; border-bottom: 1px dashed #000; }
+    .items-table th:last-child, .items-table td:last-child { text-align: right; }
+    .items-table th:nth-child(2), .items-table td:nth-child(2) { text-align: center; }
+    .items-table th:nth-child(3), .items-table td:nth-child(3) { text-align: center; }
+    .items-table td { padding: 3px 0; vertical-align: top; }
+    .item-name-ar { font-size: 9.5px; color: #444; direction: rtl; }
+    .totals-table { width: 100%; border-collapse: collapse; margin: 4px 0; }
+    .totals-table td { padding: 2px 0; font-size: 11px; }
+    .totals-table td:last-child { text-align: right; font-weight: bold; }
+    .totals-table .grand-total td { font-size: 13px; font-weight: bold; border-top: 1px dashed #000; padding-top: 4px; }
+    .footer-msg { margin-top: 6px; font-size: 10px; }
+    .no-print { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+    .no-print button { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
+    .btn-print { background: #222; color: #fff; }
+    .btn-close { background: #eee; color: #333; }
+    @media print {
+      body { background: white; padding: 0; }
+      .receipt { box-shadow: none; width: 100%; }
+      .no-print { display: none; }
+    }
   </style>
 </head>
-<body class="<?= $printer_format === 'thermal' ? 'thermal' : '' ?>">
-  <div class="invoice">
-    <!-- Header -->
-    <div class="header">
-      <?php if ($show_logo && $company_logo): ?>
-      <div style="margin-bottom:15px">
-        <img src="<?= htmlspecialchars($company_logo) ?>" alt="Company Logo" style="max-height:60px;max-width:150px">
-      </div>
+<body>
+  <div class="receipt">
+
+    <!-- HEADER -->
+    <?php if ($show_logo && $company_logo): ?>
+    <img src="<?= htmlspecialchars($company_logo) ?>" alt="Logo" class="logo">
+    <?php endif; ?>
+    <div class="center">
+      <div class="company-name"><?= htmlspecialchars($company_name) ?></div>
+      <?php $company_name_ar = get_setting('company_name_ar', ''); if ($company_name_ar): ?>
+      <div class="company-arabic"><?= htmlspecialchars($company_name_ar) ?></div>
       <?php endif; ?>
-      <div class="company-info">
-        <h1><?= htmlspecialchars($company_name) ?></h1>
-        <span class="arabic">شركة ريتيل برو الكويتية</span>
-        <p><?= htmlspecialchars($company_address) ?></p>
-        <p><?= htmlspecialchars($company_phone) ?></p>
-        <?php if ($vat_number): ?><p><?= htmlspecialchars($tax_label) ?> No: <?= htmlspecialchars($vat_number) ?></p><?php endif; ?>
-      </div>
-      <div class="invoice-title">
-        <h2>INVOICE</h2>
-        <span class="arabic">فاتورة</span>
-        <p>#<?= htmlspecialchars($inv['invoice_number']) ?></p>
-        <p><?= date('d M Y H:i', strtotime($inv['created_at'])) ?></p>
-        <span class="status-badge status-<?= $inv['status'] ?>"><?= ucfirst($inv['status']) ?></span>
-      </div>
+      <div class="company-addr"><?= htmlspecialchars($company_address) ?></div>
+      <?php $addr_ar = get_setting('address_ar', ''); if ($addr_ar): ?>
+      <div class="company-arabic company-addr"><?= htmlspecialchars($addr_ar) ?></div>
+      <?php endif; ?>
+      <?php if ($company_phone): ?>
+      <div class="company-addr">Tel: <?= htmlspecialchars($company_phone) ?></div>
+      <?php endif; ?>
+      <?php if ($vat_number && $has_tax): ?>
+      <div class="company-addr"><?= $tax_label ?> No: <?= htmlspecialchars($vat_number) ?></div>
+      <?php endif; ?>
     </div>
 
-    <!-- Customer & Branch Info -->
-    <div class="grid-2">
-      <div>
-        <div class="section-title">
-          Bill To | فاتورة إلى
-        </div>
-        <div class="info-row">
-          <span class="info-label">Name | الاسم:</span>
-          <span class="info-value">
-            <?php if ($inv['customer_company']): ?>
-            <strong><?= htmlspecialchars($inv['customer_company']) ?></strong><br>
-            <?php endif; ?>
-            <?= htmlspecialchars($inv['customer_name']) ?>
-            <?php if ($inv['customer_name_ar']): ?><span class="arabic"><?= htmlspecialchars($inv['customer_name_ar']) ?></span><?php endif; ?>
-          </span>
-        </div>
-        <?php if ($inv['address']): ?>
-        <div class="info-row">
-          <span class="info-label">Address | العنوان:</span>
-          <span class="info-value"><?= htmlspecialchars($inv['address']) ?><?php if ($inv['address_ar']) echo '<span class="arabic">' . htmlspecialchars($inv['address_ar']) . '</span>'; ?></span>
-        </div>
-        <?php endif; ?>
-        <?php if ($inv['phone']): ?>
-        <div class="info-row">
-          <span class="info-label">Phone | الهاتف:</span>
-          <span class="info-value"><?= htmlspecialchars($inv['phone']) ?></span>
-        </div>
-        <?php endif; ?>
-      </div>
-      <div>
-        <div class="section-title">
-          Branch | الفرع
-        </div>
-        <div class="info-row">
-          <span class="info-label">Location | الموقع:</span>
-          <span class="info-value"><?= htmlspecialchars($inv['branch_name']) ?></span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Payment | الدفع:</span>
-          <span class="info-value"><?= strtoupper($inv['payment_mode']) ?></span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Cashier | الكاشير:</span>
-          <span class="info-value"><?= htmlspecialchars($inv['created_by_name']) ?></span>
-        </div>
-      </div>
-    </div>
+    <hr class="divider">
 
-    <!-- Items Table -->
-    <table>
+    <!-- INVOICE INFO -->
+    <table class="info-table">
+      <tr>
+        <td>Invoice # / <span style="direction:rtl">رقم الفاتورة</span></td>
+        <td><?= htmlspecialchars($inv['invoice_number']) ?></td>
+      </tr>
+      <tr>
+        <td>Date / التاريخ</td>
+        <td><?= date('d/m/Y H:i', strtotime($inv['created_at'])) ?></td>
+      </tr>
+      <tr>
+        <td>Cashier / الكاشير</td>
+        <td><?= htmlspecialchars($inv['created_by_name']) ?></td>
+      </tr>
+      <tr>
+        <td>Customer / العميل</td>
+        <td><?= htmlspecialchars($inv['customer_name']) ?></td>
+      </tr>
+      <tr>
+        <td>Payment / الدفع</td>
+        <td><?= strtoupper($inv['payment_mode']) ?></td>
+      </tr>
+    </table>
+
+    <hr class="divider">
+
+    <!-- ITEMS -->
+    <table class="items-table">
       <thead>
         <tr>
-          <th>Item | الصنف</th>
-          <th>SKU</th>
-          <th>Qty | الكمية</th>
-          <th>Unit Price | سعر الوحدة</th>
-          <th class="text-right">Total | المجموع</th>
+          <th style="text-align:left">Item / الصنف</th>
+          <th>Qty<br><span style="font-size:9px">الكمية</span></th>
+          <th>Price<br><span style="font-size:9px">السعر</span></th>
+          <th>Total<br><span style="font-size:9px">المجموع</span></th>
         </tr>
       </thead>
       <tbody>
@@ -186,56 +159,81 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
         <tr>
           <td>
             <?= htmlspecialchars($item['name']) ?>
-            <?php if ($item['name_ar']): ?><span class="arabic"><?= htmlspecialchars($item['name_ar']) ?></span><?php endif; ?>
+            <?php if ($item['name_ar']): ?>
+            <div class="item-name-ar"><?= htmlspecialchars($item['name_ar']) ?></div>
+            <?php endif; ?>
           </td>
-          <td><?= htmlspecialchars($item['sku']) ?></td>
-          <td><?= $item['qty'] ?></td>
-          <td><?= $currency ?> <?= number_format($item['unit_price'], $decimals) ?></td>
-          <td class="text-right"><?= $currency ?> <?= number_format($item['total'], $decimals) ?></td>
+          <td style="text-align:center"><?= $item['qty'] ?></td>
+          <td style="text-align:center"><?= number_format($item['unit_price'], $decimals) ?></td>
+          <td style="text-align:right"><?= number_format($item['total'], $decimals) ?></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
     </table>
 
-    <!-- Totals -->
-    <div class="totals">
-      <div class="total-row">
-        <span class="total-label">Subtotal | المجموع الفرعي:</span>
-        <span><?= $currency ?> <?= number_format($inv['subtotal'], $decimals) ?></span>
-      </div>
+    <hr class="divider">
+
+    <!-- TOTALS -->
+    <table class="totals-table">
       <?php if ($inv['discount'] > 0): ?>
-      <div class="total-row">
-        <span class="total-label">Discount | الخصم:</span>
-        <span style="color: #dc3545">-<?= $currency ?> <?= number_format($inv['discount'], $decimals) ?></span>
-      </div>
+      <tr>
+        <td>Subtotal / المجموع الفرعي</td>
+        <td><?= number_format($inv['subtotal'], $decimals) ?> <?= $currency ?></td>
+      </tr>
+      <tr>
+        <td>Discount / الخصم</td>
+        <td>-<?= number_format($inv['discount'], $decimals) ?> <?= $currency ?></td>
+      </tr>
       <?php endif; ?>
       <?php if ($inv['vat'] > 0 && $has_tax): ?>
-      <div class="total-row">
-        <span class="total-label">VAT (5%) | الضريبة:</span>
-        <span><?= $currency ?> <?= number_format($inv['vat'], $decimals) ?></span>
-      </div>
+      <tr>
+        <td><?= $tax_label ?> / الضريبة</td>
+        <td><?= number_format($inv['vat'], $decimals) ?> <?= $currency ?></td>
+      </tr>
       <?php endif; ?>
-      <div class="total-row">
-        <span class="total-label">Total | الإجمالي:</span>
-        <span><?= $currency ?> <?= number_format($inv['total'], $decimals) ?></span>
-      </div>
-      <?php if ($inv['paid_amount'] < $inv['total']): ?>
-      <div class="total-row">
-        <span class="total-label">Paid | المدفوع:</span>
-        <span><?= $currency ?> <?= number_format($inv['paid_amount'], $decimals) ?></span>
-      </div>
-      <div class="total-row">
-        <span class="total-label">Balance | الرصيد المتبقي:</span>
-        <span style="color: #dc3545"><?= $currency ?> <?= number_format($inv['total'] - $inv['paid_amount'], $decimals) ?></span>
-      </div>
+      <tr class="grand-total">
+        <td>TOTAL / الإجمالي</td>
+        <td><?= number_format($inv['total'], $decimals) ?> <?= $currency ?></td>
+      </tr>
+      <tr>
+        <td>Cash Paid / المبلغ المدفوع</td>
+        <td><?= number_format($inv['paid_amount'], $decimals) ?> <?= $currency ?></td>
+      </tr>
+      <?php
+        $change = $inv['paid_amount'] - $inv['total'];
+        $balance = $inv['total'] - $inv['paid_amount'];
+      ?>
+      <?php if ($change > 0): ?>
+      <tr>
+        <td>Change / الباقي</td>
+        <td><?= number_format($change, $decimals) ?> <?= $currency ?></td>
+      </tr>
+      <?php elseif ($balance > 0): ?>
+      <tr>
+        <td>Balance Due / المتبقي</td>
+        <td><?= number_format($balance, $decimals) ?> <?= $currency ?></td>
+      </tr>
+      <?php endif; ?>
+    </table>
+
+    <hr class="divider">
+
+    <!-- FOOTER -->
+    <div class="center footer-msg">
+      <?php if ($invoice_footer): ?>
+      <div><?= htmlspecialchars($invoice_footer) ?></div>
+      <?php else: ?>
+      <div>Thank you for shopping with <?= htmlspecialchars($company_name) ?>.</div>
+      <div style="direction:rtl">شكراً لزيارتكم!</div>
+      <?php endif; ?>
+      <?php if ($refund_days > 0 && !preg_match('/return|refund/i', $invoice_footer)): ?>
+      <div style="margin-top:3px">Returns accepted within <?= $refund_days ?> days with receipt.</div>
+      <?php endif; ?>
+      <?php if ($company_phone): ?>
+      <div style="margin-top:4px"><?= htmlspecialchars($company_phone) ?></div>
       <?php endif; ?>
     </div>
 
-    <!-- Footer -->
-    <div class="footer">
-      <?= htmlspecialchars($invoice_footer) ?>
-      <span class="arabic">شكراً لتسوقكم مع ريتيل برو. يُسمح بإرجاع البضائع خلال 7 أيام مع الإيصال.</span>
-    </div>
   </div>
 
   <script>

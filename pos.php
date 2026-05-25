@@ -298,6 +298,11 @@ require __DIR__ . '/includes/header.php';
 <?php
 // Build data arrays safely — output directly, NOT inside single-quoted string
 $products_data = array_map(function($p) {
+    $unit = $p['unit_type'] ?? 'pc';
+    $pack = max(1, (int)($p['default_pack_size'] ?? 1));
+    $isBox  = $unit === 'box';
+    $isPair = $unit === 'pr';
+    $isDoz  = $unit === 'doz';
     return [
         'id'        => (int)$p['id'],
         'name'      => $p['name'],
@@ -306,8 +311,19 @@ $products_data = array_map(function($p) {
         'cat'       => $p['category'],
         'subcat'    => $p['sub_category'] ?? '',
         'cat_id'    => (int)$p['category_id'],
-        'price'     => (float)$p['retail_price'],
-        'wholesale' => (float)$p['wholesale_price'],
+        // piece/unit price (retail)
+        'price'     => $isBox ? (float)($p['piece_price'] ?: $p['retail_price'])
+                               : (float)$p['retail_price'],
+        'wholesale' => $isBox ? (float)($p['piece_wholesale_price'] ?: $p['wholesale_price'])
+                               : (float)$p['wholesale_price'],
+        // box price (only for box unit)
+        'box_price'        => $isBox ? (float)$p['box_price']           : 0,
+        'box_wholesale'    => $isBox ? (float)$p['box_wholesale_price'] : 0,
+        // pack info
+        'unit'      => $unit,
+        'pack_size' => $pack,
+        'is_pack'   => $isBox || $isPair || $isDoz,
+        'unit_label'=> $isPair ? 'pair' : ($isDoz ? 'dozen' : ($isBox ? "box({$pack}pcs)" : $unit)),
         'stock'     => (int)$p['stock'],
         'emoji'     => $p['emoji'] ?: ($p['sub_cat_emoji'] ?: ($p['cat_emoji'] ?: '📦')),
         'bg'        => 'rgba(67,97,238,0.08)',
@@ -591,11 +607,28 @@ function renderProductGrid(prods) {
     const stockColor   = p.stock<=5 ? "var(--red)" : (p.stock<=10 ? "var(--amber)" : "var(--text3)");
     const arName       = p.name_ar ? '<span style="font-size:11px;color:var(--text3);display:block">'+p.name_ar+'</span>' : '';
     const warn         = p.stock<=5 ? " ⚠️" : "";
+    // Build price line based on unit type
+    let priceHTML;
+    if (p.unit === 'box') {
+      const bxPrice = isWholesale ? (p.box_wholesale || p.box_price) : p.box_price;
+      priceHTML = '<div class="product-price" style="color:'+priceColor+';font-size:11px">'
+        + '<?= $currency ?> '+displayPrice.toFixed(3)+'/pc</div>'
+        + '<div style="font-size:10px;color:var(--amber,#f59e0b);font-weight:600">'
+        + '📦 <?= $currency ?> '+bxPrice.toFixed(3)+'/box ('+p.pack_size+' pcs)</div>';
+    } else if (p.unit === 'pr') {
+      priceHTML = '<div class="product-price" style="color:'+priceColor+'"><?= $currency ?> '+displayPrice.toFixed(3)+'</div>'
+        + '<div style="font-size:10px;color:var(--text3)">per pair (2 pcs)</div>';
+    } else if (p.unit === 'doz') {
+      priceHTML = '<div class="product-price" style="color:'+priceColor+'"><?= $currency ?> '+displayPrice.toFixed(3)+'</div>'
+        + '<div style="font-size:10px;color:var(--text3)">per dozen (12 pcs)</div>';
+    } else {
+      priceHTML = '<div class="product-price" style="color:'+priceColor+'"><?= $currency ?> '+displayPrice.toFixed(3)+priceTag+'</div>';
+    }
     return '<div class="product-card" onclick="addToCart('+p.id+')">'
       + '<div class="product-img" style="background:'+p.bg+'">'+p.emoji+'</div>'
       + '<div class="product-name">'+p.name+arName+'</div>'
       + '<div class="product-sku">'+p.sku+'</div>'
-      + '<div class="product-price" style="color:'+priceColor+'"><?= $currency ?> '+displayPrice.toFixed(3)+priceTag+'</div>'
+      + priceHTML
       + (p.expiry_badge ? '<div style="font-size:10px;padding:2px 6px;border-radius:4px;margin-top:3px;display:inline-block;background:'+p.expiry_badge.bg+';color:'+p.expiry_badge.color+'">'+p.expiry_badge.label+'</div>' : '')
       + '<div class="product-stock" style="color:'+stockColor+'">'+p.stock+' '+LANG.in_stock+warn+'</div>'
       + '</div>';
@@ -611,23 +644,85 @@ function filterProducts(query) {
   ));
 }
 
-function addToCart(id) {
+function addToCart(id, sellMode) {
   const p = PRODUCTS.find(x => x.id === id);
   if (!p) return;
   if (p.stock <= 0) { showToast(LANG.out_of_stock, p.name, "error"); return; }
-  const existing = cart.find(i => i.id === id);
-  // Determine price based on selected customer type
-  const custType = CUSTOMERS.find(c => c.id === selectedCustomerId);
-  const usePrice = (custType && custType.type === "wholesale") ? p.wholesale : p.price;
+
+  // Box products: if no sellMode given, show picker modal
+  if (p.unit === 'box' && !sellMode) {
+    openSellModePicker(p);
+    return;
+  }
+
+  const custType  = CUSTOMERS.find(c => c.id === selectedCustomerId);
+  const isWhole   = custType && custType.type === "wholesale";
+  const mode      = sellMode || 'unit';
+
+  let usePrice, unitLabel, packSize;
+  if (p.unit === 'box' && mode === 'box') {
+    usePrice  = isWhole ? (p.box_wholesale || p.box_price) : p.box_price;
+    unitLabel = p.unit_label;  // "box(12pcs)"
+    packSize  = p.pack_size;
+  } else {
+    // unit/piece mode — also used for pair, dozen, and all others
+    usePrice  = isWhole ? p.wholesale : p.price;
+    unitLabel = (p.unit === 'pr') ? 'pair' : (p.unit === 'doz') ? 'dozen' : (p.unit || 'pc');
+    packSize  = (p.unit === 'pr') ? 2 : (p.unit === 'doz') ? 12 : 1;
+  }
+
+  // Cart key = id + sellMode so same product can appear as both piece and box
+  const cartKey = id + '_' + mode;
+  const existing = cart.find(i => i._key === cartKey);
   if (existing) {
     existing.qty++;
   } else {
-    cart.push({...p, price: usePrice, qty:1, disc:0, cat_id: p.cat_id, expiry_badge: p.expiry_badge});
+    cart.push({...p, _key: cartKey, price: usePrice, qty: 1, disc: 0,
+               sell_mode: mode, unit_label: unitLabel, pack_size: packSize,
+               cat_id: p.cat_id, expiry_badge: p.expiry_badge});
   }
   renderCart();
-  showToast(LANG.added, p.name, "success");
-  // On mobile: briefly flash product added then auto-switch to cart after 2s
-  // (user can manually switch earlier)
+  showToast(LANG.added, p.name + (p.unit === 'box' ? ' (' + mode + ')' : ''), "success");
+}
+
+// ── Sell-mode picker for box products ─────────────────────────────────────
+function openSellModePicker(p) {
+  const custType = CUSTOMERS.find(c => c.id === selectedCustomerId);
+  const isWhole  = custType && custType.type === "wholesale";
+  const piecePrice = isWhole ? p.wholesale : p.price;
+  const boxPrice   = isWhole ? (p.box_wholesale || p.box_price) : p.box_price;
+  const cur = typeof CURRENCY !== 'undefined' ? CURRENCY : 'KWD';
+  const DEC = typeof DECIMALS !== 'undefined' ? DECIMALS : 3;
+
+  // Remove existing picker if any
+  const old = document.getElementById('sell-mode-modal');
+  if (old) old.remove();
+
+  const div = document.createElement('div');
+  div.id = 'sell-mode-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  div.innerHTML = `
+    <div style="background:var(--bg);border-radius:14px;padding:24px;width:340px;max-width:94vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${p.emoji} ${p.name}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:18px">How would you like to sell this?</div>
+
+      <button onclick="addToCart(${p.id},'unit');document.getElementById('sell-mode-modal').remove()"
+        style="width:100%;padding:14px 16px;border:1px solid var(--border2);border-radius:10px;background:var(--bg2);cursor:pointer;text-align:left;margin-bottom:10px">
+        <div style="font-weight:600;color:var(--text);font-size:13px">🏷️ Sell by piece</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">${cur} ${piecePrice.toFixed(DEC)} each — deducts 1 piece per qty</div>
+      </button>
+
+      <button onclick="addToCart(${p.id},'box');document.getElementById('sell-mode-modal').remove()"
+        style="width:100%;padding:14px 16px;border:1px solid var(--amber,#f59e0b);border-radius:10px;background:var(--bg2);cursor:pointer;text-align:left;margin-bottom:16px">
+        <div style="font-weight:600;color:var(--text);font-size:13px">📦 Sell full box</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">${cur} ${boxPrice.toFixed(DEC)} per box — deducts ${p.pack_size} pieces per qty</div>
+      </button>
+
+      <button onclick="document.getElementById('sell-mode-modal').remove()"
+        style="width:100%;padding:8px;border:none;background:none;cursor:pointer;color:var(--text3);font-size:12px">Cancel</button>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', function(e){ if(e.target===this) this.remove(); });
 }
 
 function changeQty(id, d) {
@@ -767,7 +862,10 @@ function renderCart() {
     html += '<div class="cart-item" style="position:relative">';
     html +=   '<div style="font-size:20px;flex-shrink:0">' + item.emoji + '</div>';
     html +=   '<div style="flex:1;min-width:0">';
-    html +=     '<div style="font-size:12px;font-weight:600">' + item.name + arSpan + '</div>' + expirySpan;
+    const packLabel = item.unit_label && item.unit_label !== 'pc'
+      ? '<div style="font-size:10px;color:var(--amber,#f59e0b);font-weight:500;margin-top:1px">📦 ' + item.unit_label + (item.pack_size>1 && item.sell_mode==='box' ? ' (−'+item.pack_size+' pcs each)' : '') + '</div>'
+      : '';
+    html +=     '<div style="font-size:12px;font-weight:600">' + item.name + arSpan + '</div>' + packLabel + expirySpan;
     html +=     '<div style="display:flex;align-items:center;gap:4px;margin-top:3px">';
     html +=       '<button class="qty-btn" onclick="changeQty(' + item.id + ',-1)" style="width:22px;height:22px">-</button>';
     html +=       '<span style="font-size:12px;font-weight:700;min-width:20px;text-align:center">' + item.qty + '</span>';

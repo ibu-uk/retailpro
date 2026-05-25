@@ -85,46 +85,110 @@ $low_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHE
 $out_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty = 0 $bwhere_plain")->fetch()['c'];
 $damaged     = $db->query("SELECT COUNT(*) as c FROM stock_movements WHERE type='damage' $bwhere_plain")->fetch()['c'];
 
-// Movements log with pagination (filtered by branch)
+// Movements filters
+$mv_date_from = trim($_GET['mv_from'] ?? '');
+$mv_date_to   = trim($_GET['mv_to']   ?? '');
+$mv_product   = (int)($_GET['mv_pid']  ?? 0);
+$mv_type      = trim($_GET['mv_type']  ?? '');
+
+$mv_conditions = [];
+$mv_params     = [];
+if ($filter_branch_id)  { $mv_conditions[] = 'sm.branch_id = ?';  $mv_params[] = $filter_branch_id; }
+if ($mv_date_from)      { $mv_conditions[] = 'DATE(sm.created_at) >= ?'; $mv_params[] = $mv_date_from; }
+if ($mv_date_to)        { $mv_conditions[] = 'DATE(sm.created_at) <= ?'; $mv_params[] = $mv_date_to; }
+if ($mv_product)        { $mv_conditions[] = 'sm.product_id = ?';  $mv_params[] = $mv_product; }
+if ($mv_type)           { $mv_conditions[] = 'sm.type = ?';         $mv_params[] = $mv_type; }
+$mv_where_sql = $mv_conditions ? 'WHERE ' . implode(' AND ', $mv_conditions) : '';
+
+// Movements log with pagination
 $mv_page = max(1, (int)($_GET['mp'] ?? 1));
 $mv_per  = 20;
 $mv_offset = ($mv_page - 1) * $mv_per;
-$total_movements = $db->query("SELECT COUNT(*) FROM stock_movements sm $bwhere_mv")->fetchColumn();
+$count_stmt = $db->prepare("SELECT COUNT(*) FROM stock_movements sm $mv_where_sql");
+$count_stmt->execute($mv_params);
+$total_movements = $count_stmt->fetchColumn();
 $total_mv_pages = ceil($total_movements / $mv_per);
-$movements = $db->query("
+$mv_stmt = $db->prepare("
     SELECT sm.*, p.name as product_name, b.name as branch_name, u.name as user_name
     FROM stock_movements sm
     JOIN products p ON p.id = sm.product_id
     JOIN branches b ON b.id = sm.branch_id
     LEFT JOIN users u ON u.id = sm.user_id
-    " . ($filter_branch_id ? "WHERE sm.branch_id = $filter_branch_id" : "") . "
+    $mv_where_sql
     ORDER BY sm.created_at DESC LIMIT $mv_per OFFSET $mv_offset
-")->fetchAll();
+");
+$mv_stmt->execute($mv_params);
+$movements = $mv_stmt->fetchAll();
 
-// Products and branches for form
-$all_products = $db->query("SELECT id, name, sku FROM products WHERE is_active=1 ORDER BY name")->fetchAll();
-$all_branches = $db->query("SELECT id, name FROM branches WHERE is_active=1")->fetchAll();
+// Products, branches and categories for forms
+$all_products   = $db->query("SELECT id, name, sku FROM products WHERE is_active=1 ORDER BY name")->fetchAll();
+$all_branches   = $db->query("SELECT id, name FROM branches WHERE is_active=1")->fetchAll();
+$all_categories = $db->query("SELECT id, name FROM categories WHERE parent_id IS NULL ORDER BY name")->fetchAll();
 
-// Stock by product with pagination (filtered by branch when set)
-$sp_page = max(1, (int)($_GET['sp'] ?? 1));
-$sp_per  = 20;
+// Stock Levels filters
+$sp_search = trim($_GET['sp_q']      ?? '');
+$sp_cat    = (int)($_GET['sp_cat']   ?? 0);
+$sp_status = trim($_GET['sp_status'] ?? '');
+
+$sp_conditions = ['p.is_active=1'];
+$sp_params     = [];
+if ($filter_branch_id) { /* handled via $bwhere_stock join */ }
+if ($sp_search) { $sp_conditions[] = '(p.name LIKE ? OR p.sku LIKE ?)'; $sp_params[] = "%$sp_search%"; $sp_params[] = "%$sp_search%"; }
+if ($sp_cat)    { $sp_conditions[] = 'p.category_id = ?'; $sp_params[] = $sp_cat; }
+$sp_where = 'WHERE ' . implode(' AND ', $sp_conditions);
+
+// Stock by product with pagination
+$sp_page   = max(1, (int)($_GET['sp'] ?? 1));
+$sp_per    = 50;
 $sp_offset = ($sp_page - 1) * $sp_per;
-$total_stock_items = $db->query("
-    SELECT COUNT(DISTINCT p.id) FROM products p
-    LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock
-    WHERE p.is_active=1")->fetchColumn();
-$total_sp_pages = ceil($total_stock_items / $sp_per);
 
-$stock_table = $db->query("
+$cnt_stmt = $db->prepare("SELECT COUNT(DISTINCT p.id) FROM products p LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock $sp_where");
+$cnt_stmt->execute($sp_params);
+$total_stock_items = $cnt_stmt->fetchColumn();
+$total_sp_pages = max(1, ceil($total_stock_items / $sp_per));
+
+// Status filter applied via HAVING after GROUP BY
+$having_sql = '';
+if ($sp_status === 'out') $having_sql = 'HAVING total_qty <= 0';
+elseif ($sp_status === 'low') $having_sql = 'HAVING total_qty > 0 AND total_qty <= 5';
+elseif ($sp_status === 'ok')  $having_sql = 'HAVING total_qty > 5';
+
+$st_stmt = $db->prepare("
     SELECT p.id, p.name, p.sku, COALESCE(c.emoji,'📦') as emoji, COALESCE(c.name,'—') as cat,
            COALESCE(SUM(s.qty),0) as total_qty,
-           MIN(s.qty) as min_branch_qty
+           COALESCE((SELECT SUM(sm.qty) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.qty>0 $bwhere_mv_and),0) as total_received,
+           COALESCE((SELECT ABS(SUM(sm.qty)) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.type='out' $bwhere_mv_and),0) as total_sold
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock
-    WHERE p.is_active=1
-    GROUP BY p.id ORDER BY total_qty ASC LIMIT $sp_per OFFSET $sp_offset
-")->fetchAll();
+    $sp_where
+    GROUP BY p.id $having_sql ORDER BY total_qty ASC LIMIT $sp_per OFFSET $sp_offset
+");
+$st_stmt->execute($sp_params);
+$stock_table = $st_stmt->fetchAll();
+
+// Smart pagination helper
+function smart_pages(int $current, int $total, array $extra = []): string {
+    if ($total <= 1) return '';
+    $qs = $extra ? '&' . http_build_query($extra) : '';
+    $out = '<div class="pagination" style="gap:3px">';
+    // Prev
+    if ($current > 1) $out .= "<a href='?" . ($extra ? http_build_query(array_merge($extra, ['sp' => $current-1])) : "sp=" . ($current-1)) . "' class='page-link'>&laquo;</a>";
+    // Pages window
+    $window = 3;
+    $start  = max(1, $current - $window);
+    $end    = min($total, $current + $window);
+    if ($start > 1) { $out .= "<a href='?" . ($extra ? http_build_query(array_merge($extra, ['sp'=>1])) : 'sp=1') . "' class='page-link'>1</a>"; if ($start > 2) $out .= "<span style='padding:0 4px;color:var(--text3)'>…</span>"; }
+    for ($i = $start; $i <= $end; $i++) {
+        $href = $extra ? http_build_query(array_merge($extra, ['sp'=>$i])) : "sp=$i";
+        $out .= "<a href='?$href' class='page-link" . ($i===$current?' active':'') . "'>$i</a>";
+    }
+    if ($end < $total) { if ($end < $total-1) $out .= "<span style='padding:0 4px;color:var(--text3)'>…</span>"; $out .= "<a href='?" . ($extra ? http_build_query(array_merge($extra, ['sp'=>$total])) : "sp=$total") . "' class='page-link'>$total</a>"; }
+    // Next
+    if ($current < $total) $out .= "<a href='?" . ($extra ? http_build_query(array_merge($extra, ['sp'=>$current+1])) : "sp=" . ($current+1)) . "' class='page-link'>&raquo;</a>";
+    $out .= '</div>';
+    return $out;
+}
 
 require __DIR__ . '/includes/header.php';
 ?>
@@ -172,15 +236,48 @@ require __DIR__ . '/includes/header.php';
 <div class="grid-2 mb-16">
   <div class="card">
     <div class="card-title"><span>📊 <?= __('stock_levels') ?></span></div>
+    <!-- Stock Levels Filter Bar -->
+    <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:var(--r)">
+      <?php if ($filter_branch_id): ?><input type="hidden" name="branch_id" value="<?= $filter_branch_id ?>"><?php endif; ?>
+      <input type="hidden" name="mp" value="<?= $mv_page ?>">
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px">
+        <label style="font-size:11px;color:var(--text3)">Search Product / SKU</label>
+        <input type="text" class="form-input" name="sp_q" value="<?= htmlspecialchars($sp_search) ?>" placeholder="Name or SKU..." style="font-size:12px;padding:5px 8px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">Category</label>
+        <select class="form-select" name="sp_cat" style="width:150px;font-size:12px;padding:5px 8px">
+          <option value="">All Categories</option>
+          <?php foreach ($all_categories as $cat): ?>
+          <option value="<?= $cat['id'] ?>" <?= $sp_cat==$cat['id']?'selected':'' ?>><?= htmlspecialchars($cat['name']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">Status</label>
+        <select class="form-select" name="sp_status" style="width:120px;font-size:12px;padding:5px 8px">
+          <option value="">All Status</option>
+          <option value="ok"  <?= $sp_status==='ok'?'selected':'' ?>>OK (&gt;5)</option>
+          <option value="low" <?= $sp_status==='low'?'selected':'' ?>>Low (1-5)</option>
+          <option value="out" <?= $sp_status==='out'?'selected':'' ?>>Out of Stock</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-end">🔍 Filter</button>
+      <?php if ($sp_search || $sp_cat || $sp_status): ?>
+      <a href="?<?= $filter_branch_id ? 'branch_id='.$filter_branch_id.'&' : '' ?>mp=<?= $mv_page ?>" class="btn btn-ghost btn-sm" style="align-self:flex-end">↺ Clear</a>
+      <?php endif; ?>
+    </form>
     <div class="tbl-wrap">
       <table id="stock-table">
-        <thead><tr><th><?= __('product') ?></th><th><?= __('sku') ?></th><th><?= __('category') ?></th><th><?= __('stock') ?></th><th><?= __('status') ?></th></tr></thead>
+        <thead><tr><th><?= __('product') ?></th><th><?= __('sku') ?></th><th><?= __('category') ?></th><th>Total Received</th><th>Total Sold</th><th><?= __('stock') ?></th><th><?= __('status') ?></th></tr></thead>
         <tbody>
           <?php foreach ($stock_table as $s): ?>
           <tr>
             <td><?= htmlspecialchars($s['emoji'] . ' ' . $s['name']) ?></td>
             <td class="font-mono" style="font-size:11px;color:var(--text3)"><?= htmlspecialchars($s['sku']) ?></td>
             <td><span class="badge badge-gray"><?= htmlspecialchars($s['cat']) ?></span></td>
+            <td style="color:var(--blue2);font-weight:500"><?= (int)$s['total_received'] ?></td>
+            <td style="color:var(--red);font-weight:500"><?= (int)$s['total_sold'] ?></td>
             <td style="font-weight:600;color:<?= $s['total_qty']<=0?'var(--red)':($s['total_qty']<=5?'var(--amber)':'var(--text2)') ?>"><?= $s['total_qty'] ?></td>
             <td>
               <?php if ($s['total_qty'] <= 0): ?><span class="badge badge-red"><?= __('out_of_stock') ?></span>
@@ -193,19 +290,69 @@ require __DIR__ . '/includes/header.php';
       </table>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--text3)">
-      <span><?= __('showing') ?> <?= count($stock_table) ?> <?= __('of') ?> <?= $total_stock_items ?></span>
-      <div class="pagination">
-        <?php for ($i = 1; $i <= $total_sp_pages; $i++): ?>
-        <a href="?sp=<?= $i ?>&mp=<?= $mv_page ?><?= $filter_branch_id ? '&branch_id='.$filter_branch_id : '' ?>" class="page-link <?= $i === $sp_page ? 'active' : '' ?>"><?= $i ?></a>
-        <?php endfor; ?>
-      </div>
+      <span><?= __('showing') ?> <?= count($stock_table) ?> <?= __('of') ?> <?= $total_stock_items ?> (page <?= $sp_page ?> of <?= $total_sp_pages ?>)</span>
+      <?= smart_pages($sp_page, $total_sp_pages, array_filter(['mp'=>$mv_page,'branch_id'=>$filter_branch_id?:null,'sp_q'=>$sp_search?:null,'sp_cat'=>$sp_cat?:null,'sp_status'=>$sp_status?:null])) ?>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title"><span>🗄️ <?= __('recent_movements') ?></span></div>
+    <div class="card-title">
+      <span>🗄️ <?= __('recent_movements') ?></span>
+      <div style="display:flex;gap:6px">
+        <?php
+          $mv_export_params = array_filter([
+            'branch_id' => $filter_branch_id ?: null,
+            'date_from' => $mv_date_from ?: null,
+            'date_to'   => $mv_date_to   ?: null,
+            'product_id'=> $mv_product   ?: null,
+            'type'      => $mv_type      ?: null,
+          ]);
+          $mv_export_qs = $mv_export_params ? '?' . http_build_query($mv_export_params) : '';
+        ?>
+        <a href="<?= BASE ?>/api/export_movements.php<?= $mv_export_qs ?>" class="btn btn-ghost btn-sm">📊 Excel</a>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="printMovements()">🖨️ Print</button>
+      </div>
+    </div>
+    <!-- Movements Filter Bar -->
+    <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:var(--r)">
+      <?php if ($filter_branch_id): ?><input type="hidden" name="branch_id" value="<?= $filter_branch_id ?>"><?php endif; ?>
+      <input type="hidden" name="sp" value="<?= $sp_page ?>">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">From Date</label>
+        <input type="date" class="form-input" name="mv_from" value="<?= htmlspecialchars($mv_date_from) ?>" style="width:140px;font-size:12px;padding:5px 8px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">To Date</label>
+        <input type="date" class="form-input" name="mv_to" value="<?= htmlspecialchars($mv_date_to) ?>" style="width:140px;font-size:12px;padding:5px 8px">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">Product</label>
+        <select class="form-select" name="mv_pid" style="width:160px;font-size:12px;padding:5px 8px">
+          <option value="">All Products</option>
+          <?php foreach ($all_products as $p): ?>
+          <option value="<?= $p['id'] ?>" <?= $mv_product == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:11px;color:var(--text3)">Type</label>
+        <select class="form-select" name="mv_type" style="width:130px;font-size:12px;padding:5px 8px">
+          <option value="">All Types</option>
+          <option value="in"         <?= $mv_type==='in'?'selected':'' ?>>Stock IN</option>
+          <option value="out"        <?= $mv_type==='out'?'selected':'' ?>>Stock OUT</option>
+          <option value="transfer"   <?= $mv_type==='transfer'?'selected':'' ?>>Transfer</option>
+          <option value="damage"     <?= $mv_type==='damage'?'selected':'' ?>>Damaged</option>
+          <option value="return"     <?= $mv_type==='return'?'selected':'' ?>>Returned</option>
+          <option value="adjustment" <?= $mv_type==='adjustment'?'selected':'' ?>>Adjustment</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-end">🔍 Filter</button>
+      <?php if ($mv_date_from || $mv_date_to || $mv_product || $mv_type): ?>
+      <a href="?<?= $filter_branch_id ? 'branch_id='.$filter_branch_id.'&' : '' ?>sp=<?= $sp_page ?>" class="btn btn-ghost btn-sm" style="align-self:flex-end">↺ Clear</a>
+      <?php endif; ?>
+    </form>
     <div class="tbl-wrap">
-      <table>
+      <table id="movements-table">
         <thead><tr><th><?= __('date') ?></th><th><?= __('product') ?></th><th><?= __('type') ?></th><th><?= __('qty') ?></th><th><?= __('created_by') ?></th></tr></thead>
         <tbody>
           <?php foreach ($movements as $m):
@@ -224,12 +371,8 @@ require __DIR__ . '/includes/header.php';
       </table>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--text3)">
-      <span><?= __('showing') ?> <?= count($movements) ?> <?= __('of') ?> <?= $total_movements ?></span>
-      <div class="pagination">
-        <?php for ($i = 1; $i <= $total_mv_pages; $i++): ?>
-        <a href="?sp=<?= $sp_page ?>&mp=<?= $i ?><?= $filter_branch_id ? '&branch_id='.$filter_branch_id : '' ?>" class="page-link <?= $i === $mv_page ? 'active' : '' ?>"><?= $i ?></a>
-        <?php endfor; ?>
-      </div>
+      <span><?= __('showing') ?> <?= count($movements) ?> <?= __('of') ?> <?= $total_movements ?> (page <?= $mv_page ?> of <?= $total_mv_pages ?>)</span>
+      <?= smart_pages($mv_page, $total_mv_pages, array_filter(['sp'=>$sp_page,'branch_id'=>$filter_branch_id?:null,'mv_from'=>$mv_date_from?:null,'mv_to'=>$mv_date_to?:null,'mv_pid'=>$mv_product?:null,'mv_type'=>$mv_type?:null]), ) ?>
     </div>
   </div>
 </div>
@@ -324,10 +467,20 @@ function openStockModal(type) {
   openModal("stock-modal");
 }
 const COMPANY_NAME = "<?= htmlspecialchars(get_setting('company_name', APP_NAME)) ?>";
+function printMovements() {
+  const table = document.getElementById("movements-table");
+  const win = window.open("","_blank");
+  win.document.write("<html><head><title>Stock Movements</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0f2f5;font-weight:600}.header{text-align:center;margin-bottom:20px}</style></head><body>");
+  win.document.write("<div class=header><h2>" + COMPANY_NAME + " — Stock Movements Report</h2><p>Generated: " + new Date().toLocaleDateString() + "</p></div>");
+  win.document.write(table.outerHTML);
+  win.document.write("</body></html>");
+  win.document.close();
+  win.print();
+}
 function printInventory() {
   const table = document.getElementById("stock-table");
   const win = window.open("","_blank");
-  win.document.write("<html><head><title>Inventory</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0f2f5;font-weight:600}.header{text-align:center;margin-bottom:20px}</style></head><body>");
+  win.document.write("<html><head><title>Inventory</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0f2f5;font-weight:600}.header{text-align:center;margin-bottom:20px}td:nth-child(4){color:#2563eb}td:nth-child(5){color:#dc2626}</style></head><body>");
   win.document.write("<div class=header><h2>" + COMPANY_NAME + " — Inventory Report</h2><p>Generated: " + new Date().toLocaleDateString() + "</p></div>");
   win.document.write(table.outerHTML);
   win.document.write("</body></html>");

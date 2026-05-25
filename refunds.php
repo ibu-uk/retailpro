@@ -209,8 +209,8 @@ require __DIR__ . '/includes/header.php';
 
 <?php ob_start(); ?>
 <script>
-const CURRENCY = "' . $currency . '";
-const DECIMALS = ' . $decimals . ';
+const CURRENCY = "<?= htmlspecialchars($currency) ?>";
+const DECIMALS = <?= (int)$decimals ?>;
 let currentInvoice = null;
 let invoiceItems   = [];
 
@@ -223,7 +223,7 @@ function searchInvoice() {
   btn.disabled = true;
   btn.textContent = "Searching...";
 
-  fetch("' . BASE . '/api/invoice_lookup.php?q=" + encodeURIComponent(q))
+  fetch("<?= BASE ?>/api/invoice_lookup.php?q=" + encodeURIComponent(q))
     .then(function(r) { return r.json(); })
     .then(function(data) {
       btn.disabled = false;
@@ -280,18 +280,37 @@ function renderResult() {
     const expBadge = item.expiry_date
       ? "<br><span style=\"font-size:10px;color:var(--amber)\">Exp: " + item.expiry_date + "</span>"
       : "";
-    const batchInfo = item.batch_number
-      ? "<div style=\"font-size:10px;color:var(--accent2);font-family:monospace\">" + item.batch_number + "</div>"
-        + (item.supplier_name ? "<div style=\"font-size:10px;color:var(--text3)\">" + item.supplier_name + "</div>" : "")
-      : "<span style=\"color:var(--text3);font-size:11px\">—</span>";
+    let batchInfo = "";
+    if (item.batch_number) {
+      batchInfo += '<div style="font-size:11px;font-weight:600;font-family:monospace;color:var(--accent2)">' + item.batch_number + '</div>';
+      if (item.lot_number)    batchInfo += '<div style="font-size:10px;color:var(--text3)">Lot: ' + item.lot_number + '</div>';
+      if (item.supplier_name) batchInfo += '<div style="font-size:10px;color:var(--text3)">' + item.supplier_name + '</div>';
+      if (item.batch_remaining !== null) batchInfo += '<div style="font-size:10px;color:var(--text3)">Remaining: ' + item.batch_remaining + ' pcs</div>';
+    } else if (item.supplier_name) {
+      batchInfo = '<div style="font-size:11px;color:var(--text3)">' + item.supplier_name + '</div><div style="font-size:10px;color:var(--text3)">No batch recorded</div>';
+    } else {
+      batchInfo = '<span style="color:var(--text3);font-size:11px">—</span>';
+    }
 
     rows += "<tr>" +
       "<td><div style=\"display:flex;align-items:center;gap:6px\"><span style=\"font-size:18px\">" + item.emoji + "</span><div><div style=\"font-weight:500\">" + item.product_name + "</div>" +
       (item.product_name_ar ? "<div style=\"font-size:10px;color:var(--text3);direction:rtl\">" + item.product_name_ar + "</div>" : "") + "</div></div></td>" +
       "<td class=\"hide-mobile\">" + batchInfo + "</td>" +
-      "<td class=\"hide-mobile\">" + (item.expiry_date ? "<span style=\"font-size:11px;color:var(--amber)\">" + item.expiry_date + "</span>" : "<span style=\"color:var(--text3)\">—</span>") + "</td>" +
-      "<td style=\"font-weight:600\">" + item.qty + "</td>" +
-      "<td>" + CURRENCY + " " + unitPrice.toFixed(DECIMALS) + "</td>" +
+      (function(){
+        if (!item.expiry_date) return "<td class=\"hide-mobile\"><span style=\"color:var(--text3)\">—</span></td>";
+        const exp = new Date(item.expiry_date);
+        const now = new Date();
+        const daysLeft = Math.round((exp - now) / 86400000);
+        const color = daysLeft < 0 ? "var(--red)" : daysLeft < 30 ? "var(--amber)" : "var(--green)";
+        const label = daysLeft < 0 ? " (EXPIRED)" : daysLeft < 30 ? " (" + daysLeft + "d)" : "";
+        return "<td class=\"hide-mobile\"><span style=\"font-size:11px;color:" + color + "\">" + item.expiry_date + label + "</span></td>";
+      })() +
+      "<td style=\"font-weight:600\">" + item.qty +
+        (item.unit_label && item.unit_label !== 'pc' ? '<div style="font-size:10px;color:#f59e0b;font-weight:500">' + item.unit_label + "</div>" : "") +
+      "</td>" +
+      "<td>" + CURRENCY + " " + unitPrice.toFixed(DECIMALS) +
+        (item.unit_label && item.unit_label !== 'pc' ? '<div style="font-size:10px;color:var(--text3)">per ' + item.unit_label + "</div>" : "") +
+      "</td>" +
       "<td style=\"color:var(--green);font-weight:600\">" + CURRENCY + " " + parseFloat(item.total).toFixed(DECIMALS) + "</td>" +
       "<td><input type=\"number\" min=\"0\" max=\"" + item.qty + "\" value=\"0\"" +
         " data-item-id=\"" + item.id + "\"" +
@@ -369,7 +388,7 @@ function processRefund() {
 
 function _doRefund(items, reason, mode, total) {
 
-  fetch("' . BASE . '/api/refund.php", {
+  fetch("<?= BASE ?>/refund.php", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
