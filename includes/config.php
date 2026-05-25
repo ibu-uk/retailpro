@@ -7,7 +7,7 @@
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'retailpro');
 define('DB_USER', 'root');       // change to your MySQL user
-define('DB_PASS', 'TheSild@2026bb');           // change to your MySQL password
+define('DB_PASS', '');           // change to your MySQL password
 define('DB_CHARSET', 'utf8mb4');
 
 define('APP_NAME', 'RetailPro ERP');
