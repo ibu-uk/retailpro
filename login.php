@@ -2,12 +2,13 @@
 require_once __DIR__ . '/includes/config.php';
 if (current_user()) { header('Location: ' . BASE . '/index.php'); exit; }
 
-$company_logo  = get_setting('company_logo');
-$_co_name      = get_setting('company_name', APP_NAME);
-$_co_name_ar   = get_setting('company_name_ar', '');
+$company_logo    = get_setting('company_logo');
+$_co_name        = get_setting('company_name', APP_NAME);
+$_co_name_ar     = get_setting('company_name_ar', '');
+$_co_subtitle    = get_setting('company_address', '');
 $_lang = get_lang();
 $_rtl  = is_rtl();
-$display_name  = ($_rtl && $_co_name_ar) ? $_co_name_ar : ($_co_name ?: APP_NAME);
+$display_name    = ($_rtl && $_co_name_ar) ? $_co_name_ar : ($_co_name ?: APP_NAME);
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
@@ -69,8 +70,9 @@ code{color:var(--accent);background:var(--bg4);padding:1px 6px;border-radius:4px
     <?php else: ?>
     <div class="logo-icon">🛍️</div>
     <?php endif; ?>
-    <div class="logo-title"><?= htmlspecialchars($display_name) ?></div>
-    <div class="logo-sub"><?= __('login_subtitle') ?></div>
+    <div class="logo-title"><?= htmlspecialchars($_co_name ?: APP_NAME) ?></div>
+    <?php if ($_co_name_ar): ?><div style="font-size:15px;font-weight:700;color:var(--text2);direction:rtl;margin-top:2px"><?= htmlspecialchars($_co_name_ar) ?></div><?php endif; ?>
+    <?php if ($_co_subtitle): ?><div class="logo-sub"><?= htmlspecialchars($_co_subtitle) ?></div><?php endif; ?>
   </div>
   <?php if ($error): ?>
   <div class="error-box">❌ <?= htmlspecialchars($error) ?></div>
@@ -86,11 +88,6 @@ code{color:var(--accent);background:var(--bg4);padding:1px 6px;border-radius:4px
     </div>
     <button type="submit" class="btn-submit"><?= __('sign_in') ?> →</button>
   </form>
-  <div class="demo-box">
-    <strong><?= __('demo_credentials') ?></strong>
-    <?= __('email') ?>: <code><?= htmlspecialchars(get_setting('admin_email','admin@company.com')) ?></code><br>
-    <?= __('password') ?>: <code>password</code>
-  </div>
 </div>
 <div id="toast-container"></div>
 <script>
