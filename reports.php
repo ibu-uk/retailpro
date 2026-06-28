@@ -47,6 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
             $db->prepare("DELETE FROM invoice_items WHERE invoice_id=?")->execute([$inv_id]);
             $db->prepare("DELETE FROM invoices WHERE id=?")->execute([$inv_id]);
         }
+        if ($inv_data) {
+            audit_log('delete_invoice', 'invoices', $inv_id, $inv_data, null);
+        }
         $db->commit();
     } catch (Exception $e) {
         $db->rollBack();
@@ -57,11 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     exit;
 }
 
-// ── Use prepared statements for all queries ──
+// ── Use index-friendly datetime range for all queries ──
+$to_next = date('Y-m-d', strtotime($to . ' +1 day'));
 $bparam  = $branch_id ?: null;
 $bwhere  = $branch_id ? "AND i.branch_id = ?" : "";
 $bparam2 = $branch_id ? "AND inv.branch_id = ?" : "";
-$p_summary = $branch_id ? [$from, $to, $branch_id] : [$from, $to];
+$p_summary = $branch_id ? [$from, $to_next, $branch_id] : [$from, $to_next];
 
 $summary = $db->prepare("
     SELECT
@@ -73,19 +77,19 @@ $summary = $db->prepare("
         COALESCE(AVG(i.total),0)            as avg_ticket,
         COALESCE(SUM(i.total - i.paid_amount),0) as outstanding
     FROM invoices i
-    WHERE DATE(i.created_at) BETWEEN ? AND ? $bwhere
+    WHERE i.created_at >= ? AND i.created_at < ? $bwhere
 ");
 $summary->execute($p_summary);
 $summary = $summary->fetch();
 
 // Gross profit
-$p_cost = $branch_id ? [$from, $to, $branch_id] : [$from, $to];
+$p_cost = $branch_id ? [$from, $to_next, $branch_id] : [$from, $to_next];
 $cost_stmt = $db->prepare("
     SELECT COALESCE(SUM(ii.qty * p.cost_price),0) as total_cost
     FROM invoice_items ii
     JOIN invoices inv ON inv.id = ii.invoice_id
     JOIN products p   ON p.id  = ii.product_id
-    WHERE DATE(inv.created_at) BETWEEN ? AND ? $bparam2
+    WHERE inv.created_at >= ? AND inv.created_at < ? $bparam2
 ");
 $cost_stmt->execute($p_cost);
 $total_cost   = $cost_stmt->fetch()['total_cost'];
@@ -93,9 +97,9 @@ $gross_profit = $summary['net_sales'] - $total_cost;
 $gp_margin    = $summary['total_sales'] > 0 ? round($gross_profit / $summary['total_sales'] * 100, 1) : 0;
 
 // Expenses in period
-$p_exp = $branch_id ? [$from, $to, $branch_id] : [$from, $to];
+$p_exp = $branch_id ? [$from, $to_next, $branch_id] : [$from, $to_next];
 $exp_where = $branch_id ? "AND (branch_id = ? OR branch_id IS NULL)" : "";
-$period_expenses = $db->prepare("SELECT COALESCE(SUM(amount),0) as e FROM expenses WHERE DATE(created_at) BETWEEN ? AND ? $exp_where");
+$period_expenses = $db->prepare("SELECT COALESCE(SUM(amount),0) as e FROM expenses WHERE created_at >= ? AND created_at < ? $exp_where");
 $period_expenses->execute($p_exp);
 $total_expenses = $period_expenses->fetch()['e'];
 $net_profit = $gross_profit - $total_expenses;
@@ -109,7 +113,7 @@ $cat_sales = $db->prepare("
     JOIN invoices inv ON inv.id = ii.invoice_id
     JOIN products p   ON p.id  = ii.product_id
     JOIN categories c ON c.id  = p.category_id
-    WHERE DATE(inv.created_at) BETWEEN ? AND ? $bparam2
+    WHERE inv.created_at >= ? AND inv.created_at < ? $bparam2
     GROUP BY c.id ORDER BY revenue DESC
 ");
 $cat_sales->execute($p_cost);
@@ -118,15 +122,15 @@ $cat_sales = $cat_sales->fetchAll();
 // Daily trend
 $daily = $db->prepare("
     SELECT DATE(i.created_at) as d, SUM(i.total) as s, COUNT(*) as c
-    FROM invoices i WHERE DATE(i.created_at) BETWEEN ? AND ? $bwhere
+    FROM invoices i WHERE i.created_at >= ? AND i.created_at < ? $bwhere
     GROUP BY DATE(i.created_at) ORDER BY d
 ");
 $daily->execute($p_summary);
 $daily = $daily->fetchAll();
 
 // Invoice list (paginated)
-$p_inv  = $branch_id ? [$from, $to, $branch_id] : [$from, $to];
-$total_inv_stmt = $db->prepare("SELECT COUNT(*) FROM invoices i WHERE DATE(i.created_at) BETWEEN ? AND ? $bwhere");
+$p_inv  = $branch_id ? [$from, $to_next, $branch_id] : [$from, $to_next];
+$total_inv_stmt = $db->prepare("SELECT COUNT(*) FROM invoices i WHERE i.created_at >= ? AND i.created_at < ? $bwhere");
 $total_inv_stmt->execute($p_inv);
 $total_inv   = $total_inv_stmt->fetchColumn();
 $total_pages = max(1, ceil($total_inv / $per_page));
@@ -135,8 +139,8 @@ $inv_stmt = $db->prepare("
     SELECT i.*, c.name as cust_name, COALESCE(c.company_name,'') as cust_company, b.name as branch_name
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
-    JOIN branches  b ON b.id = i.branch_id
-    WHERE DATE(i.created_at) BETWEEN ? AND ? $bwhere
+    JOIN branches b ON b.id = i.branch_id
+    WHERE i.created_at >= ? AND i.created_at < ? $bwhere
     ORDER BY i.created_at DESC
     LIMIT $per_page OFFSET $offset
 ");
@@ -151,7 +155,7 @@ if ($max_daily <= 0) $max_daily = 1;
 // Payment mode breakdown — use aliased query to match $bwhere (AND i.branch_id)
 $pay_mode_stmt = $db->prepare("
     SELECT i.payment_mode, COUNT(*) as cnt, SUM(i.total) as s
-    FROM invoices i WHERE DATE(i.created_at) BETWEEN ? AND ? $bwhere
+    FROM invoices i WHERE i.created_at >= ? AND i.created_at < ? $bwhere
     GROUP BY i.payment_mode
 ");
 $pay_mode_stmt->execute($p_summary);

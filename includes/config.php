@@ -1,14 +1,40 @@
 <?php
 // ============================================================
 // RetailPro ERP — Configuration
-// Edit DB credentials here
+// DB credentials are now read from environment variables or a .env file.
+// Copy .env.example to .env and fill in live credentials.
+// NEVER commit .env to version control.
 // ============================================================
 
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'retailpro');
-define('DB_USER', 'root');       // change to your MySQL user
-define('DB_PASS', '');           // change to your MySQL password
-define('DB_CHARSET', 'utf8mb4');
+// Load environment variables from .env file if present
+function load_env(string $path): void {
+    if (!file_exists($path) || !is_readable($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) return;
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || strpos($line, '#') === 0) continue;
+        if (strpos($line, '=') === false) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $key = trim($key);
+        $value = trim($value);
+        if ($key === '') continue;
+        // Remove surrounding quotes if present
+        if (strlen($value) > 1 && (($value[0] === '"' && $value[-1] === '"') || ($value[0] === "'" && $value[-1] === "'"))) {
+            $value = substr($value, 1, -1);
+        }
+        putenv("{$key}={$value}");
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+    }
+}
+load_env(__DIR__ . '/../.env');
+
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_NAME', getenv('DB_NAME') ?: 'retailpro');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
 
 define('APP_NAME', 'RetailPro ERP');
 define('APP_VERSION', '2.4.0');
@@ -36,7 +62,15 @@ function db(): PDO {
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
-            die('<html><body style="background:#f0f2f5;color:#ef4444;font-family:monospace;padding:40px"><h2>Database Connection Failed</h2><p>' . htmlspecialchars($e->getMessage()) . '</p><p style="color:#8896a6;margin-top:20px">Edit <strong>includes/config.php</strong> and set DB_USER and DB_PASS correctly.</p></body></html>');
+            log_error('Database connection failed: ' . $e->getMessage());
+            http_response_code(500);
+            die('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>' . __('error') . '</title><style>
+            body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f5;color:#1a1d26;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+            .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:40px;max-width:480px;width:100%;text-align:center}
+            .icon{font-size:40px;margin-bottom:16px}
+            h1{font-size:20px;margin-bottom:8px}
+            p{color:#6b7280;line-height:1.6}
+            </style></head><body><div class="card"><div class="icon">🔌</div><h1>' . __('db_error') . '</h1><p>' . htmlspecialchars($e->getMessage()) . '</p><p style="font-size:12px;color:#9ca3af;margin-top:16px">RetailPro ERP</p></div></body></html>');
         }
     }
     return $pdo;
@@ -51,11 +85,31 @@ function current_user(): ?array {
     return $_SESSION['user'] ?? null;
 }
 
+function check_session_timeout(): void {
+    $timeout = (int)(getenv('SESSION_TIMEOUT') ?: 7200);
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $timeout) {
+        $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
+        }
+        session_destroy();
+        header('Location: ' . BASE . '/login.php?error=' . urlencode(__('session_expired')));
+        exit;
+    }
+}
+
+function touch_session(): void {
+    $_SESSION['last_activity'] = time();
+}
+
 function require_login(): void {
     if (!current_user()) {
         header('Location: ' . BASE . '/login.php');
         exit;
     }
+    check_session_timeout();
+    touch_session();
 }
 
 function get_setting(string $key, string $default = ''): string {
@@ -116,27 +170,35 @@ function calc_tax(float $subtotal): array {
 
 function next_invoice_number(): string {
     $prefix = get_setting('invoice_prefix', 'INV-');
-    $stmt = db()->query("SELECT COUNT(*) as cnt FROM invoices");
-    $cnt = $stmt->fetch()['cnt'] + 1;
-    return $prefix . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+    $year = date('Y');
+    $pattern = $prefix . $year . '%';
+    $stmt = db()->prepare("SELECT COALESCE(MAX(id),0) as max_id FROM invoices WHERE invoice_number LIKE ?");
+    $stmt->execute([$pattern]);
+    $seq = $stmt->fetch()['max_id'] + 1;
+    return $prefix . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
 }
 
 function next_po_number(): string {
-    $stmt = db()->query("SELECT COUNT(*) as cnt FROM purchase_orders");
-    $cnt = $stmt->fetch()['cnt'] + 1;
-    return 'PO-' . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+    $year = date('Y');
+    $pattern = 'PO-' . $year . '%';
+    $stmt = db()->prepare("SELECT COALESCE(MAX(id),0) as max_id FROM purchase_orders WHERE po_number LIKE ?");
+    $stmt->execute([$pattern]);
+    $seq = $stmt->fetch()['max_id'] + 1;
+    return 'PO-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
 }
 
 function next_quote_number(): string {
     $prefix = get_setting('quote_prefix', 'QUO-');
-    // Graceful fallback: if table doesn't exist yet, use 0001
+    $year = date('Y');
+    $pattern = $prefix . $year . '%';
     try {
-        $stmt = db()->query("SELECT COUNT(*) as cnt FROM quotations");
-        $cnt = $stmt->fetch()['cnt'] + 1;
+        $stmt = db()->prepare("SELECT COALESCE(MAX(id),0) as max_id FROM quotations WHERE quote_number LIKE ?");
+        $stmt->execute([$pattern]);
+        $seq = $stmt->fetch()['max_id'] + 1;
     } catch (Exception $e) {
-        $cnt = 1;
+        $seq = 1;
     }
-    return $prefix . date('Y') . '-' . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+    return $prefix . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
 }
 
 // JSON response helper for API calls
@@ -227,4 +289,104 @@ function require_role(string ...$roles): void {
 // ============================================================
 function safe_date(string $val, string $fallback): string {
     return preg_match('/^\d{4}-\d{2}-\d{2}$/', $val) ? $val : $fallback;
+}
+
+// ============================================================
+// Security: CSRF protection
+// ============================================================
+function csrf_token(): string {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrf_field(): string {
+    return '<input type="hidden" name="_csrf" value="' . htmlspecialchars(csrf_token()) . '">';
+}
+
+function verify_csrf(): void {
+    if (PHP_SAPI === 'cli') return;
+    $token = $_POST['_csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], (string)$token)) {
+        log_error('CSRF validation failed for ' . ($_SERVER['REQUEST_URI'] ?? 'unknown'));
+        $content_type = $_SERVER['CONTENT_TYPE'] ?? '';
+        $is_ajax = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') || stripos($content_type, 'application/json') !== false;
+        if ($is_ajax) {
+            json_response(['error' => 'Invalid CSRF token — please refresh the page'], 403);
+        }
+        http_response_code(403);
+        die('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>' . __('security_error') . '</title><style>
+            body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f5;color:#1a1d26;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+            .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:40px;max-width:480px;width:100%;text-align:center}
+            .icon{font-size:40px;margin-bottom:16px}
+            h1{font-size:20px;margin-bottom:8px}
+            p{color:#6b7280;line-height:1.6}
+            </style></head><body><div class="card"><div class="icon">🛡️</div><h1>' . __('security_error') . '</h1><p>' . __('invalid_csrf') . '</p><p style="font-size:12px;color:#9ca3af;margin-top:16px">RetailPro ERP</p></div></body></html>');
+    }
+}
+
+// ============================================================
+// Audit logging
+// ============================================================
+function ensure_audit_log_table(): void {
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS audit_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT,
+            action VARCHAR(50) NOT NULL,
+            table_name VARCHAR(80),
+            record_id INT,
+            old_values TEXT,
+            new_values TEXT,
+            ip_address VARCHAR(45),
+            user_agent VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (Exception $e) {
+        log_error('Could not create audit_log table: ' . $e->getMessage());
+    }
+}
+
+function audit_log(string $action, string $table_name, int $record_id, ?array $old = null, ?array $new = null): void {
+    try {
+        ensure_audit_log_table();
+        db()->prepare("INSERT INTO audit_log (user_id, action, table_name, record_id, old_values, new_values, ip_address, user_agent) VALUES (?,?,?,?,?,?,?,?)")
+           ->execute([
+               current_user()['id'] ?? null,
+               $action,
+               $table_name,
+               $record_id,
+               $old ? json_encode($old, JSON_UNESCAPED_UNICODE) : null,
+               $new ? json_encode($new, JSON_UNESCAPED_UNICODE) : null,
+               $_SERVER['REMOTE_ADDR'] ?? null,
+               $_SERVER['HTTP_USER_AGENT'] ?? null
+           ]);
+    } catch (Exception $e) {
+        log_error('Audit log failed: ' . $e->getMessage());
+    }
+}
+
+// ============================================================
+// Error logging
+// ============================================================
+function log_error(string $message): void {
+    $log_dir = __DIR__ . '/../logs';
+    $log_file = $log_dir . '/retailpro.log';
+    try {
+        if (!is_dir($log_dir)) {
+            @mkdir($log_dir, 0750, true);
+        }
+        $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+        @file_put_contents($log_file, $line, FILE_APPEND | LOCK_EX);
+    } catch (Exception $e) {
+        // silently ignore to avoid breaking the app
+    }
+}
+
+// ============================================================
+// Global CSRF protection for POST requests
+// ============================================================
+if (PHP_SAPI !== 'cli' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    verify_csrf();
 }

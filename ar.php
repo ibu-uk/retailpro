@@ -51,6 +51,11 @@ return [
     'invalid_credentials' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
     'db_error' => 'خطأ في قاعدة البيانات — تحقق من بيانات الاتصال.',
     'demo_credentials' => 'بيانات تجريبية',
+    'session_expired' => 'انتهت جلستك. يرجى تسجيل الدخول مرة أخرى.',
+    'security_error' => 'خطأ أمني',
+    'invalid_csrf' => 'رمز الأمان غير صالح. يرجى تحديث الصفحة والمحاولة مرة أخرى.',
+    'forbidden' => 'ممنوع',
+    'audit_log' => 'سجل التدقيق',
 
     // Sidebar Navigation
     'nav_core' => 'الرئيسية',
@@ -476,6 +481,10 @@ return [
     'amount_paid_now' => 'المبلغ المدفوع الآن',
     'remaining_credit' => 'المتبقي سيضاف لرصيد العميل',
     'hold' => 'تعليق',
+    'resume' => 'استئناف',
+    'held_sales' => 'المبيعات المعلقة',
+    'no_held_sales' => 'لا توجد مبيعات معلقة.',
+    'hold_resumed' => 'تم استئناف البيع المعلق.',
     'charge' => 'دفع',
     'quick_add_customer' => 'إضافة عميل سريع',
     'full_name' => 'الاسم الكامل',

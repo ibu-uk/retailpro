@@ -78,6 +78,7 @@ code{color:var(--accent);background:var(--bg4);padding:1px 6px;border-radius:4px
   <div class="error-box">❌ <?= htmlspecialchars($error) ?></div>
   <?php endif; ?>
   <form method="POST">
+    <?= csrf_field() ?>
     <div class="form-group">
       <label class="form-label"><?= __('email_address') ?></label>
       <input class="form-input" type="email" name="email" placeholder="<?= htmlspecialchars(get_setting('admin_email','admin@company.com')) ?>" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>

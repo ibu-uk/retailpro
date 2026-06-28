@@ -63,6 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
                ->execute([$pid, $bid, $init, $init]);
         }
     }
+    audit_log('create_product', 'products', (int)$pid, null, [
+        'name' => trim($_POST['name']),
+        'sku' => trim($_POST['sku']),
+        'category_id' => (int)$_POST['category_id']
+    ]);
     header('Location: ' . BASE . '/products.php?success=' . urlencode('Product added successfully'));
     exit;
 }
@@ -71,6 +76,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit') {
     $unit  = trim($_POST['unit_type'] ?? 'pc');
     $psize = pack_size_for($unit, (int)($_POST['default_pack_size'] ?? 1));
+    $pid = (int)$_POST['product_id'];
+
+    $old_stmt = $db->prepare("SELECT * FROM products WHERE id=?");
+    $old_stmt->execute([$pid]);
+    $old_product = $old_stmt->fetch();
 
     $db->prepare("
         UPDATE products SET
@@ -101,7 +111,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
         trim($_POST['size']  ?? ''),
         $unit,
         trim($_POST['description'] ?? ''),
-        (int)$_POST['product_id'],
+        $pid,
+    ]);
+    audit_log('update_product', 'products', $pid, $old_product, [
+        'name' => trim($_POST['name']),
+        'sku' => trim($_POST['sku']),
+        'category_id' => (int)$_POST['category_id']
     ]);
     header('Location: ' . BASE . '/products.php?success=' . urlencode('Product updated'));
     exit;
@@ -116,9 +131,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         header('Location: ' . BASE . '/products.php?error=' . urlencode('Cannot delete: product has sales history. Disable it instead.'));
         exit;
     }
+    $old_stmt = $db->prepare("SELECT * FROM products WHERE id=?");
+    $old_stmt->execute([$pid]);
+    $old_product = $old_stmt->fetch();
     $db->prepare("DELETE FROM stock_movements WHERE product_id=?")->execute([$pid]);
     $db->prepare("DELETE FROM stock WHERE product_id=?")->execute([$pid]);
     $db->prepare("DELETE FROM products WHERE id=?")->execute([$pid]);
+    audit_log('delete_product', 'products', $pid, $old_product, null);
     header('Location: ' . BASE . '/products.php?success=' . urlencode('Product deleted'));
     exit;
 }

@@ -21,6 +21,42 @@ if (empty($cart)) json_response(['error' => 'Cart is empty'], 400);
 $db = db();
 $db->beginTransaction();
 
+function calculate_server_promo(PDO $db, ?int $offer_id, array $cart, float $after_item_disc, float $subtotal): float {
+    if (!$offer_id) return 0;
+    $stmt = $db->prepare("SELECT * FROM offers WHERE id = ? AND is_active = 1 AND start_date <= CURDATE() AND end_date >= CURDATE() AND (usage_limit = 0 OR usage_count < usage_limit)");
+    $stmt->execute([$offer_id]);
+    $offer = $stmt->fetch();
+    if (!$offer) return 0;
+
+    $applicable = 0;
+    if ($offer['applies_to'] === 'all') {
+        $applicable = $after_item_disc;
+    } else {
+        $target_cat = (int)$offer['applies_to'];
+        foreach ($cart as $item) {
+            if ((int)($item['cat_id'] ?? 0) !== $target_cat) continue;
+            $line = (float)$item['price'] * (int)$item['qty'];
+            $applicable += $line - ($line * ((float)($item['disc'] ?? 0) / 100));
+        }
+    }
+    if ($applicable <= 0) return 0;
+
+    $type  = $offer['type'];
+    $value = (float)$offer['discount_value'];
+    if ($type === 'percent') return round($applicable * ($value / 100), 3);
+    if ($type === 'fixed') return min($value, $applicable);
+    if ($type === 'bogo') {
+        $prices = [];
+        foreach ($cart as $item) {
+            if ($offer['applies_to'] === 'all' || (int)($item['cat_id'] ?? 0) === (int)$offer['applies_to']) {
+                $prices[] = (float)$item['price'];
+            }
+        }
+        if ($prices) return min($prices);
+    }
+    return 0;
+}
+
 try {
     // ── Totals ────────────────────────────────────────────────────────────
     $subtotal        = 0;
@@ -31,6 +67,10 @@ try {
         $item_disc_total += $line * ((float)($item['disc'] ?? 0) / 100);
     }
     $after_item_disc = $subtotal - $item_disc_total;
+
+    // Recalculate promotion server-side — never trust client-provided discount
+    $promo_disc = calculate_server_promo($db, $offer_id, $cart, $after_item_disc, $subtotal);
+
     $after_promo     = $after_item_disc - $promo_disc;
     $global_disc     = ($disc_type === 'pct') ? $after_promo * ($disc_value / 100) : min($disc_value, $after_promo);
     $discount        = $item_disc_total + $promo_disc + $global_disc;

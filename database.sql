@@ -359,3 +359,22 @@ CREATE TABLE payments (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
+
+-- ============================================================
+-- PERFORMANCE INDEXES
+-- ============================================================
+ALTER TABLE products        ADD INDEX idx_sku (sku);
+ALTER TABLE products        ADD INDEX idx_barcode (barcode);
+ALTER TABLE products        ADD INDEX idx_category (category_id);
+ALTER TABLE products        ADD INDEX idx_active (is_active);
+ALTER TABLE stock           ADD INDEX idx_product_branch (product_id, branch_id);
+ALTER TABLE stock_movements ADD INDEX idx_product_branch (product_id, branch_id);
+ALTER TABLE stock_movements ADD INDEX idx_created (created_at);
+ALTER TABLE invoices        ADD INDEX idx_created (created_at);
+ALTER TABLE invoices        ADD INDEX idx_branch_created (branch_id, created_at);
+ALTER TABLE invoices        ADD INDEX idx_customer_created (customer_id, created_at);
+ALTER TABLE invoices        ADD INDEX idx_payment_mode (payment_mode);
+ALTER TABLE invoices        ADD INDEX idx_status (status);
+ALTER TABLE invoice_items   ADD INDEX idx_invoice (invoice_id);
+ALTER TABLE invoice_items   ADD INDEX idx_product_id (product_id);
+ALTER TABLE expenses        ADD INDEX idx_created (created_at);

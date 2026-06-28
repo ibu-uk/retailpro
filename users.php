@@ -25,6 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
             trim($_POST['name']), trim($_POST['email']), $hash,
             $_POST['role'], $_POST['branch_id'] ?: null
         ]);
+        $new_uid = $db->lastInsertId();
+        audit_log('create_user', 'users', (int)$new_uid, null, [
+            'name' => trim($_POST['name']),
+            'email' => trim($_POST['email']),
+            'role' => $_POST['role'],
+            'branch_id' => $_POST['branch_id'] ?: null
+        ]);
         header('Location: ' . BASE . '/users.php?success=' . urlencode('User ' . trim($_POST['name']) . ' created'));
     } catch (Exception $e) {
         header('Location: ' . BASE . '/users.php?error=' . urlencode('Failed to create user: ' . $e->getMessage()));
@@ -46,6 +53,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
         exit;
     }
     try {
+        $old_stmt = $db->prepare("SELECT * FROM users WHERE id=?");
+        $old_stmt->execute([$uid]);
+        $old_user = $old_stmt->fetch();
         $db->prepare("UPDATE users SET name=?, email=?, role=?, branch_id=? WHERE id=?")->execute([
             trim($_POST['name']), trim($_POST['email']),
             $_POST['role'], $_POST['branch_id'] ?: null, $uid
@@ -54,6 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
             $hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
             $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([$hash, $uid]);
         }
+        audit_log('update_user', 'users', $uid, $old_user, [
+            'name' => trim($_POST['name']),
+            'email' => trim($_POST['email']),
+            'role' => $_POST['role'],
+            'branch_id' => $_POST['branch_id'] ?: null
+        ]);
         header('Location: ' . BASE . '/users.php?success=' . urlencode('User updated'));
     } catch (Exception $e) {
         header('Location: ' . BASE . '/users.php?error=' . urlencode('Update failed: ' . $e->getMessage()));
@@ -64,7 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_user') {
     $uid = (int)$_POST['user_id'];
     if ($uid != 1) {
+        $old_stmt = $db->prepare("SELECT * FROM users WHERE id=?");
+        $old_stmt->execute([$uid]);
+        $old_user = $old_stmt->fetch();
         $db->prepare("DELETE FROM users WHERE id=?")->execute([$uid]);
+        audit_log('delete_user', 'users', $uid, $old_user, null);
     }
     header('Location: ' . BASE . '/users.php?success=' . urlencode('User deleted'));
     exit;

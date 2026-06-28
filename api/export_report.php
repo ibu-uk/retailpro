@@ -6,25 +6,29 @@ $tc = get_tax_config();
 $currency = $tc['currency'];
 $decimals = $tc['currency_decimals'];
 
-$from      = $_GET['from'] ?? date('Y-m-01');
-$to        = $_GET['to'] ?? date('Y-m-d');
+$from      = (isset($_GET['from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'])) ? $_GET['from'] : date('Y-m-01');
+$to        = (isset($_GET['to'])   && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to']))   ? $_GET['to']   : date('Y-m-d');
+$to_next   = date('Y-m-d', strtotime($to . ' +1 day'));
 $branch_id = (int)($_GET['branch_id'] ?? 0);
 
-$bwhere = $branch_id ? "AND i.branch_id = $branch_id" : "";
+$bwhere = $branch_id ? "AND i.branch_id = ?" : "";
+$params = $branch_id ? [$from, $to_next, $branch_id] : [$from, $to_next];
 
 $db = db();
-$invoices = $db->query("
+$stmt = $db->prepare("
     SELECT i.invoice_number, c.name as customer, b.name as branch, i.created_at,
            i.payment_mode, i.subtotal, i.discount, i.total, i.status
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
     JOIN branches b ON b.id = i.branch_id
-    WHERE DATE(i.created_at) BETWEEN '$from' AND '$to' $bwhere
+    WHERE i.created_at >= ? AND i.created_at < ? $bwhere
     ORDER BY i.created_at DESC
-")->fetchAll();
+");
+$stmt->execute($params);
+$invoices = $stmt->fetchAll();
 
 // Generate CSV (opens natively in Excel)
-$filename = $_exp_co . '_Sales_' . $from . '_to_' . $to . '.csv';
+$filename = "{$_exp_co}_Sales_{$from}_to_{$to}.csv";
 
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="' . $filename . '"');

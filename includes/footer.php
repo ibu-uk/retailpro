@@ -308,6 +308,40 @@ document.addEventListener('touchend', function(e) {
 }, { passive: true });
 </script>
 
+<script>
+// ── CSRF protection: inject token into all POST forms and fetch requests ──
+(function() {
+    const token = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!token) return;
+
+    // Inject hidden _csrf field into every POST form
+    document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(form) {
+        if (form.querySelector('input[name="_csrf"]')) return;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = '_csrf';
+        input.value = token;
+        form.appendChild(input);
+    });
+
+    // Wrap fetch() to send CSRF token in every AJAX request
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+        options = options || {};
+        if (typeof options === 'object' && !options.headers) {
+            options.headers = {};
+        }
+        if (typeof options === 'object' && typeof options.headers === 'object') {
+            const h = options.headers;
+            if (!h['X-CSRF-Token'] && !h['x-csrf-token']) {
+                h['X-CSRF-Token'] = token;
+            }
+        }
+        return originalFetch(url, options);
+    };
+})();
+</script>
+
 <?php if (!empty($extra_js)) echo $extra_js; ?>
 </body>
 </html>

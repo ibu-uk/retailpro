@@ -72,18 +72,32 @@ if ($filter_branch_id) {
     $bn->execute([$filter_branch_id]);
     $branch_name_filter = $bn->fetchColumn() ?: '';
 }
-$bwhere_stock    = $filter_branch_id ? "AND s.branch_id = $filter_branch_id"          : "";
-$bwhere_mv       = $filter_branch_id ? "WHERE sm.branch_id = $filter_branch_id"        : "";
-$bwhere_mv_and   = $filter_branch_id ? "AND sm.branch_id = $filter_branch_id"          : "";
-$bwhere_plain    = $filter_branch_id ? "AND branch_id = $filter_branch_id"             : "";
-$bwhere_plain_wh = $filter_branch_id ? "WHERE branch_id = $filter_branch_id"           : "";
+$branch_param = $filter_branch_id ? [$filter_branch_id] : [];
+$stock_join_branch = $filter_branch_id ? "AND s.branch_id = ?" : "";
+$mv_and_branch     = $filter_branch_id ? "AND sm.branch_id = ?" : "";
+$stock_where_total = $filter_branch_id ? "WHERE branch_id = ?" : "";
+$stock_where_stats = $filter_branch_id ? "AND branch_id = ?" : "";
 
 // Stats (scoped to branch if filtered) — use plain column refs, no table alias
-$total_stock = $db->query("SELECT COALESCE(SUM(qty),0) as s FROM stock $bwhere_plain_wh")->fetch()['s'];
-$in_stock    = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 10 $bwhere_plain")->fetch()['c'];
-$low_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 0 AND qty <= 5 $bwhere_plain")->fetch()['c'];
-$out_stock   = $db->query("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty = 0 $bwhere_plain")->fetch()['c'];
-$damaged     = $db->query("SELECT COUNT(*) as c FROM stock_movements WHERE type='damage' $bwhere_plain")->fetch()['c'];
+$stmt = $db->prepare("SELECT COALESCE(SUM(qty),0) as s FROM stock $stock_where_total");
+$stmt->execute($branch_param);
+$total_stock = $stmt->fetch()['s'];
+
+$stmt = $db->prepare("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 10 $stock_where_stats");
+$stmt->execute($branch_param);
+$in_stock = $stmt->fetch()['c'];
+
+$stmt = $db->prepare("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty > 0 AND qty <= 5 $stock_where_stats");
+$stmt->execute($branch_param);
+$low_stock = $stmt->fetch()['c'];
+
+$stmt = $db->prepare("SELECT COUNT(DISTINCT product_id) as c FROM stock WHERE qty = 0 $stock_where_stats");
+$stmt->execute($branch_param);
+$out_stock = $stmt->fetch()['c'];
+
+$stmt = $db->prepare("SELECT COUNT(*) as c FROM stock_movements WHERE type='damage' $stock_where_stats");
+$stmt->execute($branch_param);
+$damaged = $stmt->fetch()['c'];
 
 // Movements filters
 $mv_date_from = trim($_GET['mv_from'] ?? '');
@@ -108,6 +122,10 @@ $count_stmt = $db->prepare("SELECT COUNT(*) FROM stock_movements sm $mv_where_sq
 $count_stmt->execute($mv_params);
 $total_movements = $count_stmt->fetchColumn();
 $total_mv_pages = ceil($total_movements / $mv_per);
+
+$mv_exec_params = $mv_params;
+$mv_exec_params[] = $mv_per;
+$mv_exec_params[] = $mv_offset;
 $mv_stmt = $db->prepare("
     SELECT sm.*, p.name as product_name, b.name as branch_name, u.name as user_name
     FROM stock_movements sm
@@ -115,13 +133,12 @@ $mv_stmt = $db->prepare("
     JOIN branches b ON b.id = sm.branch_id
     LEFT JOIN users u ON u.id = sm.user_id
     $mv_where_sql
-    ORDER BY sm.created_at DESC LIMIT $mv_per OFFSET $mv_offset
+    ORDER BY sm.created_at DESC LIMIT ? OFFSET ?
 ");
-$mv_stmt->execute($mv_params);
+$mv_stmt->execute($mv_exec_params);
 $movements = $mv_stmt->fetchAll();
 
-// Products, branches and categories for forms
-$all_products   = $db->query("SELECT id, name, sku FROM products WHERE is_active=1 ORDER BY name")->fetchAll();
+// Branches and categories for forms
 $all_branches   = $db->query("SELECT id, name FROM branches WHERE is_active=1")->fetchAll();
 $all_categories = $db->query("SELECT id, name FROM categories WHERE parent_id IS NULL ORDER BY name")->fetchAll();
 
@@ -142,29 +159,59 @@ $sp_page   = max(1, (int)($_GET['sp'] ?? 1));
 $sp_per    = 50;
 $sp_offset = ($sp_page - 1) * $sp_per;
 
-$cnt_stmt = $db->prepare("SELECT COUNT(DISTINCT p.id) FROM products p LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock $sp_where");
-$cnt_stmt->execute($sp_params);
+$cnt_params = $sp_params;
+if ($filter_branch_id) {
+    $cnt_params = array_merge([$filter_branch_id], $cnt_params);
+}
+
+$cnt_stmt = $db->prepare("SELECT COUNT(DISTINCT p.id) FROM products p LEFT JOIN stock s ON s.product_id = p.id $stock_join_branch $sp_where");
+$cnt_stmt->execute($cnt_params);
 $total_stock_items = $cnt_stmt->fetchColumn();
 $total_sp_pages = max(1, ceil($total_stock_items / $sp_per));
 
-// Status filter applied via HAVING after GROUP BY
+// Status filter applied via HAVING after joins
 $having_sql = '';
 if ($sp_status === 'out') $having_sql = 'HAVING total_qty <= 0';
 elseif ($sp_status === 'low') $having_sql = 'HAVING total_qty > 0 AND total_qty <= 5';
 elseif ($sp_status === 'ok')  $having_sql = 'HAVING total_qty > 5';
 
+$stock_derive_where = $filter_branch_id ? "AND branch_id = ?" : "";
+$mv_derive_where    = $filter_branch_id ? "AND branch_id = ?" : "";
+
+$st_params = $sp_params;
+if ($filter_branch_id) {
+    $st_params = array_merge([$filter_branch_id, $filter_branch_id], $st_params);
+}
+$st_params[] = $sp_per;
+$st_params[] = $sp_offset;
+
 $st_stmt = $db->prepare("
     SELECT p.id, p.name, p.sku, COALESCE(c.emoji,'📦') as emoji, COALESCE(c.name,'—') as cat,
-           COALESCE(SUM(s.qty),0) as total_qty,
-           COALESCE((SELECT SUM(sm.qty) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.qty>0 $bwhere_mv_and),0) as total_received,
-           COALESCE((SELECT ABS(SUM(sm.qty)) FROM stock_movements sm WHERE sm.product_id=p.id AND sm.type='out' $bwhere_mv_and),0) as total_sold
+           COALESCE(s.total_qty,0) as total_qty,
+           COALESCE(sm.total_received,0) as total_received,
+           COALESCE(sm.total_sold,0) as total_sold
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
-    LEFT JOIN stock s ON s.product_id = p.id $bwhere_stock
+    LEFT JOIN (
+        SELECT product_id, SUM(qty) as total_qty
+        FROM stock
+        WHERE 1=1 $stock_derive_where
+        GROUP BY product_id
+    ) s ON s.product_id = p.id
+    LEFT JOIN (
+        SELECT product_id,
+               SUM(CASE WHEN qty > 0 THEN qty ELSE 0 END) as total_received,
+               SUM(CASE WHEN type='out' THEN ABS(qty) ELSE 0 END) as total_sold
+        FROM stock_movements
+        WHERE 1=1 $mv_derive_where
+        GROUP BY product_id
+    ) sm ON sm.product_id = p.id
     $sp_where
-    GROUP BY p.id $having_sql ORDER BY total_qty ASC LIMIT $sp_per OFFSET $sp_offset
+    $having_sql
+    ORDER BY total_qty ASC
+    LIMIT ? OFFSET ?
 ");
-$st_stmt->execute($sp_params);
+$st_stmt->execute($st_params);
 $stock_table = $st_stmt->fetchAll();
 
 // Smart pagination helper
@@ -387,14 +434,11 @@ require __DIR__ . '/includes/header.php';
     <form method="POST">
       <input type="hidden" name="action" value="adjust">
       <div class="modal-body">
-        <div class="form-group">
+        <div class="form-group" style="position:relative">
           <label class="form-label"><?= __('product') ?> *</label>
-          <select class="form-select" name="product_id" required>
-            <option value=""><?= __('select') ?>...</option>
-            <?php foreach ($all_products as $p): ?>
-            <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name'] . ' (' . $p['sku'] . ')') ?></option>
-            <?php endforeach; ?>
-          </select>
+          <input type="hidden" name="product_id" id="inv-prod-id" required>
+          <input class="form-input" type="text" id="inv-prod-search" placeholder="<?= __('search_products') ?>..." oninput="invSearchProduct(this.value)" autocomplete="off" required>
+          <div id="inv-prod-results" class="cust-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border2);border-radius:0 0 var(--r) var(--r);max-height:220px;overflow-y:auto;z-index:30;box-shadow:var(--shadow-md)"></div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -464,8 +508,46 @@ function openStockModal(type) {
     var bsel = document.querySelector("[name=branch_id]");
     if (bsel) bsel.value = bid;
   }
+  var ps = document.getElementById("inv-prod-search");
+  var pid = document.getElementById("inv-prod-id");
+  if (ps) { ps.value = ""; }
+  if (pid) { pid.value = ""; }
+  var dd = document.getElementById("inv-prod-results");
+  if (dd) { dd.style.display = "none"; }
   openModal("stock-modal");
 }
+
+let invSearchTimeout = null;
+function invSearchProduct(q) {
+  var dd = document.getElementById("inv-prod-results");
+  if (!q) { dd.style.display = "none"; return; }
+  if (invSearchTimeout) clearTimeout(invSearchTimeout);
+  invSearchTimeout = setTimeout(function() {
+    var url = "<?= BASE ?>/api/search_products_simple.php?q=" + encodeURIComponent(q) + "&limit=10";
+    fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        var list = data.products || [];
+        if (!list.length) {
+          dd.innerHTML = '<div style="padding:10px;text-align:center;font-size:12px;color:var(--text3)"><?= __('no_data') ?></div>';
+        } else {
+          dd.innerHTML = list.map(function(p) {
+            return '<div style="padding:8px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'transparent\'" onclick="invSelectProduct(' + p.id + ', \'' + p.name.replace(/\\'/g, "\\'") + ' (' + p.sku + ')\')">'
+              + (p.emoji || '📦') + ' ' + p.name + ' <span style="font-size:10px;color:var(--text3)">' + p.sku + '</span></div>';
+          }).join('');
+        }
+        dd.style.display = "block";
+      })
+      .catch(function() { dd.style.display = "none"; });
+  }, 250);
+}
+
+function invSelectProduct(id, label) {
+  document.getElementById("inv-prod-id").value = id;
+  document.getElementById("inv-prod-search").value = label;
+  document.getElementById("inv-prod-results").style.display = "none";
+}
+
 const COMPANY_NAME = "<?= htmlspecialchars(get_setting('company_name', APP_NAME)) ?>";
 function printMovements() {
   const table = document.getElementById("movements-table");

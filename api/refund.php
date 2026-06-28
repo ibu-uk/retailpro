@@ -114,6 +114,12 @@ try {
     ]);
 
     $db->commit();
+    audit_log('refund', 'invoices', $invoice_id, $inv, [
+        'refund_amount' => $refund_total,
+        'refund_mode'   => $refund_mode,
+        'reason'        => $reason,
+        'items'         => $items,
+    ]);
     json_response([
         'success' => true,
         'refund_amount' => number_format($refund_total, 3),

@@ -10,7 +10,8 @@ $user = current_user();
 $is_super = ($user['role'] === 'super_admin' && !$user['branch_id']);
 
 // BUG FIX: branch-scoped lookup — cashier can only look up their branch invoices
-$branch_filter = $is_super ? "" : "AND i.branch_id = " . (int)$user['branch_id'];
+$branch_filter = $is_super ? "" : "AND i.branch_id = ?";
+$branch_params = $is_super ? [] : [(int)$user['branch_id']];
 
 $stmt = $db->prepare("
     SELECT i.*, c.name as customer_name, b.name as branch_name
@@ -22,7 +23,7 @@ $stmt = $db->prepare("
     ORDER BY i.created_at DESC
     LIMIT 1
 ");
-$stmt->execute(["%$q%", (int)$q]);
+$stmt->execute(array_merge(["%$q%", (int)$q], $branch_params));
 $inv = $stmt->fetch();
 
 if (!$inv) json_response(['error' => "Invoice \"$q\" not found"], 404);

@@ -35,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute(['tax_rate',           $p['tax_rate'],                $p['tax_rate']]);
         $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute(['tax_label',          $p['tax_label'],               $p['tax_label']]);
         $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute(['tax_inclusive',      $p['tax_inclusive'],           $p['tax_inclusive']]);
+        audit_log('load_country_profile', 'settings', 0, null, ['country_code' => $code, 'profile' => $p['name']]);
         header('Location: ' . BASE . '/settings.php?success=' . urlencode('Country profile loaded — review and save your custom values below') . '&tab=tax');
         exit;
     }
@@ -56,9 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($lp) { $fp = __DIR__ . str_replace(BASE,'',$lp); if(file_exists($fp)) unlink($fp); }
             $db->prepare("DELETE FROM settings WHERE setting_key='company_logo'")->execute();
         }
+        $new_values = [];
         foreach (['company_name','company_name_ar','address','phone'] as $f) {
-            if (isset($_POST[$f])) { $v=trim($_POST[$f]); $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$f,$v,$v]); }
+            if (isset($_POST[$f])) { $v=trim($_POST[$f]); $new_values[$f] = $v; $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$f,$v,$v]); }
         }
+        audit_log('save_company_settings', 'settings', 0, null, $new_values);
         header('Location: ' . BASE . '/settings.php?success=' . urlencode('Company settings saved') . '&tab=company');
         exit;
     }
@@ -70,6 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $sli = isset($_POST['show_logo_in_invoice']) ? '1' : '0';
         $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute(['show_logo_in_invoice',$sli,$sli]);
+        audit_log('save_invoice_settings', 'settings', 0, null, [
+            'invoice_prefix' => trim($_POST['invoice_prefix'] ?? ''),
+            'refund_period_days' => trim($_POST['refund_period_days'] ?? ''),
+            'show_logo_in_invoice' => $sli
+        ]);
         header('Location: ' . BASE . '/settings.php?success=' . urlencode('Invoice settings saved') . '&tab=invoice');
         exit;
     }
@@ -99,6 +107,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ] as $k => $v) {
             $db->prepare("INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?")->execute([$k, $v, $v]);
         }
+        audit_log('save_tax_settings', 'settings', 0, null, [
+            'country_code' => $cc,
+            'currency' => $currency,
+            'currency_decimals' => $decimals,
+            'tax_type' => $tax_type,
+            'tax_rate' => $tax_rate,
+            'tax_label' => $tax_label,
+            'tax_inclusive' => $inclusive
+        ]);
         header('Location: ' . BASE . '/settings.php?success=' . urlencode('Tax & currency settings saved') . '&tab=tax');
         exit;
     }

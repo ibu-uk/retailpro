@@ -1,0 +1,12 @@
+# RetailPro ERP - Apache security rules
+# Block access to sensitive files
+<FilesMatch "^\.(env|git|gitignore|md|sql|log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to logs directory
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^logs/ - [F,L]
+</IfModule>

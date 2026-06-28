@@ -12,49 +12,8 @@ $branch_id = (int)($user['branch_id'] ?? 1);
 // super_admin always sees everything regardless of branch assignment
 $is_super = ($user['role'] === 'super_admin');
 
-if ($is_super) {
-    $cat_filter = ""; // no filter — sees all products
-} else {
-    try {
-        $has_bc = $db->query("SELECT COUNT(*) FROM branch_categories WHERE branch_id = $branch_id")->fetchColumn();
-        if ($has_bc > 0) {
-            $cat_filter = "AND p.category_id IN (SELECT category_id FROM branch_categories WHERE branch_id = $branch_id)";
-        } else {
-            // Branch has no category assignments yet — show ALL products (safe fallback)
-            $cat_filter = "";
-        }
-    } catch (Exception $e) {
-        // Table doesn't exist yet — show all
-        $cat_filter = "";
-    }
-}
-
-$products = $db->query("
-    SELECT p.id, p.name, COALESCE(p.name_ar,'') as name_ar,
-           COALESCE(p.emoji,'📦') as emoji,
-           p.sku, COALESCE(p.barcode,'') as barcode,
-           p.category_id,
-           COALESCE(c.name,'') as category,
-           COALESCE(c.name_ar,'') as category_ar,
-           COALESCE(c.emoji,'📦') as cat_emoji,
-           p.sub_category_id,
-           COALESCE(sc.name,'') as sub_category,
-           COALESCE(sc.emoji,'') as sub_cat_emoji,
-           p.retail_price, p.wholesale_price,
-           COALESCE(s.qty,0) as stock,
-           p.has_expiry,
-           COALESCE(p.expiry_alert_days, 90) as expiry_alert_days,
-           (SELECT MIN(sb.expiry_date) FROM stock_batches sb
-            WHERE sb.product_id = p.id AND sb.branch_id = $branch_id
-            AND sb.qty_remaining > 0 AND sb.expiry_date IS NOT NULL) as earliest_expiry
-    FROM products p
-    LEFT JOIN categories c  ON c.id = p.category_id
-    LEFT JOIN categories sc ON sc.id = p.sub_category_id
-    LEFT JOIN stock s ON s.product_id = p.id AND s.branch_id = $branch_id
-    WHERE p.is_active = 1
-    $cat_filter
-    ORDER BY c.name, sc.name, p.name
-")->fetchAll();
+// Products are loaded on-demand via api/search_products.php
+$products = [];
 
 // Load categories — super_admin sees all, others see branch-assigned only
 if ($is_super) {
@@ -62,24 +21,30 @@ if ($is_super) {
                                FROM categories WHERE COALESCE(is_active,1)=1 ORDER BY name")->fetchAll();
 } else {
     try {
-        $has_bc2 = $db->query("SELECT COUNT(*) FROM branch_categories WHERE branch_id = $branch_id")->fetchColumn();
+        $has_bc2_stmt = $db->prepare("SELECT COUNT(*) FROM branch_categories WHERE branch_id = ?");
+        $has_bc2_stmt->execute([$branch_id]);
+        $has_bc2 = $has_bc2_stmt->fetchColumn();
         if ($has_bc2 > 0) {
-            $categories = $db->query("SELECT c.id, c.name, COALESCE(c.name_ar,'') as name_ar, COALESCE(c.emoji,'📦') as emoji
+            $cat_stmt = $db->prepare("SELECT c.id, c.name, COALESCE(c.name_ar,'') as name_ar, COALESCE(c.emoji,'📦') as emoji
                                        FROM categories c
                                        INNER JOIN branch_categories bc ON bc.category_id = c.id
-                                       WHERE bc.branch_id = $branch_id
+                                       WHERE bc.branch_id = ?
                                        AND COALESCE(c.is_active,1) = 1
-                                       ORDER BY c.name")->fetchAll();
+                                       ORDER BY c.name");
+            $cat_stmt->execute([$branch_id]);
+            $categories = $cat_stmt->fetchAll();
         } else {
             // No assignments — show all categories
-            $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar, COALESCE(emoji,'📦') as emoji
+            $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar, COALESCE(c.emoji,'📦') as emoji
                                        FROM categories WHERE COALESCE(is_active,1)=1 ORDER BY name")->fetchAll();
         }
     } catch (Exception $e) {
         $categories = $db->query("SELECT id, name, COALESCE(name_ar,'') as name_ar FROM categories ORDER BY name")->fetchAll();
     }
 }
-$customers  = $db->query("SELECT id, name, COALESCE(company_name,'') as company_name, phone, type, balance FROM customers WHERE is_active=1 ORDER BY id ASC")->fetchAll();
+// Customers are loaded on-demand via api/search_customers.php
+$customers = [];
+
 $tc       = get_tax_config();
 $currency = $tc['currency'] ?: 'KWD';
 $decimals = $tc['currency_decimals'];
@@ -168,7 +133,7 @@ require __DIR__ . '/includes/header.php';
       <select class="search-input" id="pos-cat" onchange="filterProducts(document.getElementById('pos-search').value)" style="flex:1">
         <option value=""><?= __('all_categories') ?></option>
         <?php foreach ($categories as $cat): ?>
-        <option value="<?= htmlspecialchars($cat['name']) ?>"><?= htmlspecialchars($cat['name']) ?><?php if ($cat['name_ar']) echo ' / ' . htmlspecialchars($cat['name_ar']); ?></option>
+        <option value="<?= (int)$cat['id'] ?>"><?= htmlspecialchars($cat['name']) ?><?php if ($cat['name_ar']) echo ' / ' . htmlspecialchars($cat['name_ar']); ?></option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -181,7 +146,9 @@ require __DIR__ . '/includes/header.php';
       <span style="font-size:18px">🛒</span>
       <h3><?= __('shopping_cart') ?></h3>
       <span class="badge badge-purple" id="cart-count">0 <?= __('items') ?></span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="clearCart()"><?= __('delete') ?></button>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="holdSale()"><?= __('hold') ?></button>
+      <button class="btn btn-ghost btn-sm" onclick="showHoldModal()"><?= __('resume') ?></button>
+      <button class="btn btn-ghost btn-sm" onclick="clearCart()"><?= __('delete') ?></button>
     </div>
 
     <!-- CUSTOMER SELECTOR -->
@@ -261,6 +228,22 @@ require __DIR__ . '/includes/header.php';
   </div>
 </div>
 
+<!-- HOLD / RESUME SALE MODAL -->
+<div class="modal-backdrop" id="hold-modal">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <div class="modal-title"><?= __('held_sales') ?></div>
+      <button class="modal-close" onclick="closeModal('hold-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="hold-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('hold-modal')"><?= __('close') ?></button>
+    </div>
+  </div>
+</div>
+
 <!-- QUICK ADD CUSTOMER MODAL -->
 <div class="modal-backdrop" id="quick-customer-modal">
   <div class="modal" style="width:440px">
@@ -297,42 +280,7 @@ require __DIR__ . '/includes/header.php';
 
 <?php
 // Build data arrays safely — output directly, NOT inside single-quoted string
-$products_data = array_map(function($p) {
-    $unit = $p['unit_type'] ?? 'pc';
-    $pack = max(1, (int)($p['default_pack_size'] ?? 1));
-    $isBox  = $unit === 'box';
-    $isPair = $unit === 'pr';
-    $isDoz  = $unit === 'doz';
-    return [
-        'id'        => (int)$p['id'],
-        'name'      => $p['name'],
-        'name_ar'   => $p['name_ar'] ?? '',
-        'sku'       => $p['sku'],
-        'cat'       => $p['category'],
-        'subcat'    => $p['sub_category'] ?? '',
-        'cat_id'    => (int)$p['category_id'],
-        // piece/unit price (retail)
-        'price'     => $isBox ? (float)($p['piece_price'] ?: $p['retail_price'])
-                               : (float)$p['retail_price'],
-        'wholesale' => $isBox ? (float)($p['piece_wholesale_price'] ?: $p['wholesale_price'])
-                               : (float)$p['wholesale_price'],
-        // box price (only for box unit)
-        'box_price'        => $isBox ? (float)$p['box_price']           : 0,
-        'box_wholesale'    => $isBox ? (float)$p['box_wholesale_price'] : 0,
-        // pack info
-        'unit'      => $unit,
-        'pack_size' => $pack,
-        'is_pack'   => $isBox || $isPair || $isDoz,
-        'unit_label'=> $isPair ? 'pair' : ($isDoz ? 'dozen' : ($isBox ? "box({$pack}pcs)" : $unit)),
-        'stock'     => (int)$p['stock'],
-        'emoji'     => $p['emoji'] ?: ($p['sub_cat_emoji'] ?: ($p['cat_emoji'] ?: '📦')),
-        'bg'        => 'rgba(67,97,238,0.08)',
-        'barcode'      => $p['barcode'] ?? '',
-        'has_expiry'   => (int)($p['has_expiry'] ?? 0),
-        'alert_days'   => (int)($p['expiry_alert_days'] ?? 90),
-        'expiry_date'  => $p['earliest_expiry'] ?? null,
-    ];
-}, $products);
+$products_data = [];
 
 $offers_data = array_map(function($o) {
     return [
@@ -345,16 +293,7 @@ $offers_data = array_map(function($o) {
     ];
 }, $active_offers);
 
-$customers_data = array_map(function($c) {
-    return [
-        'id'      => (int)$c['id'],
-        'name'    => $c['name'],
-        'company' => $c['company_name'] ?? '',
-        'phone'   => $c['phone'] ?? '',
-        'type'    => $c['type'],
-        'balance' => (float)$c['balance'],
-    ];
-}, $customers);
+$customers_data = [];
 
 ob_start(); ?>
 <script>
@@ -389,11 +328,18 @@ const LANG      = <?= json_encode([
     'no_products'            => __('no_data'),
     'empty_cart'             => __('add_products_start'),
     'hold_msg'               => __('hold'),
+    'hold'                   => __('hold'),
+    'resume'                 => __('resume'),
+    'held_sales'             => __('held_sales'),
+    'no_held_sales'          => __('no_held_sales'),
+    'hold_resumed'           => __('hold_resumed'),
 ], JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP) ?>;
 const CURRENCY = "<?= $currency ?>";
 const BASE_URL = "<?= BASE ?>";
 
 let cart = [];
+let productCache = {};
+let customerCache = {};
 let selectedPayMode = "cash";
 let selectedCustomerId = 1; // Walk-in by default
 let appliedPromo = null; // {id, title, type, value, applies}
@@ -413,14 +359,24 @@ let discountType = "pct"; // "pct" for percentage, "fixed" for fixed KWD
       if (!code) return;
 
       barcodeBar.classList.add("scanning");
-      const found = PRODUCTS.find(p => p.sku.toUpperCase() === code || p.sku.toUpperCase().replace(/[^A-Z0-9]/g,"") === code.replace(/[^A-Z0-9]/g,"") || (p.barcode && p.barcode.toUpperCase() === code) || (p.barcode && p.barcode.toUpperCase().replace(/[^A-Z0-9]/g,"") === code.replace(/[^A-Z0-9]/g,"")));
-      if (found) {
-        addToCart(found.id);
-      } else {
-        showToast(LANG.error, "No product found for: " + code, "error");
-      }
-      this.value = "";
-      setTimeout(() => barcodeBar.classList.remove("scanning"), 300);
+      const url = BASE_URL + "/api/search_products.php?barcode=" + encodeURIComponent(code) + "&limit=1";
+      fetch(url)
+        .then(r => r.json())
+        .then(data => {
+          if (data.products && data.products[0]) {
+            const p = data.products[0];
+            p.expiry_badge = getExpiryBadge(p);
+            productCache[p.id] = p;
+            addProductToCart(p);
+          } else {
+            showToast(LANG.error, "No product found for: " + code, "error");
+          }
+        })
+        .catch(() => showToast(LANG.error, LANG.network_error, "error"))
+        .finally(() => {
+          this.value = "";
+          setTimeout(() => barcodeBar.classList.remove("scanning"), 300);
+        });
     }
   });
 
@@ -458,15 +414,34 @@ function selectCustomerTab(el) {
     document.getElementById("customer-search-box").style.display = "block";
     document.getElementById("cust-search-input").value = "";
     document.getElementById("cust-search-input").focus();
-    renderCustomerList(CUSTOMERS.filter(c => c.id !== 1));
+    renderCustomerList([]);
   }
 }
 
+let custSearchTimeout = null;
 function filterCustomers(q) {
-  q = q.toLowerCase();
-  const filtered = CUSTOMERS.filter(c => c.id !== 1 && (c.name.toLowerCase().includes(q) || (c.company && c.company.toLowerCase().includes(q)) || c.phone.includes(q)));
-  renderCustomerList(filtered);
-  document.getElementById("cust-dropdown").classList.add("open");
+  const dd = document.getElementById("cust-dropdown");
+  if (!q) {
+    renderCustomerList([]);
+    dd.classList.add("open");
+    return;
+  }
+  if (custSearchTimeout) clearTimeout(custSearchTimeout);
+  custSearchTimeout = setTimeout(function() { searchCustomers(q); }, 250);
+}
+
+function searchCustomers(q) {
+  const dd = document.getElementById("cust-dropdown");
+  const url = BASE_URL + "/api/search_customers.php?q=" + encodeURIComponent(q) + "&limit=10";
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      const list = data.customers || [];
+      list.forEach(c => customerCache[c.id] = c);
+      renderCustomerList(list);
+      dd.classList.add("open");
+    })
+    .catch(() => showToast(LANG.error, LANG.network_error, "error"));
 }
 
 function renderCustomerList(list) {
@@ -495,13 +470,13 @@ function renderCustomerList(list) {
 
 function openCustDropdown() {
   const dd = document.getElementById("cust-dropdown");
-  renderCustomerList(CUSTOMERS.filter(c => c.id !== 1));
+  renderCustomerList([]);
   dd.classList.add("open");
 }
 
-function pickCustomer(id) {
-  const c = CUSTOMERS.find(x => x.id === id);
+function pickCustomerFromData(c) {
   if (!c) return;
+  customerCache[c.id] = c;
   selectedCustomerId = c.id;
   document.getElementById("cart-customer").value = c.id;
   document.getElementById("cust-dropdown").classList.remove("open");
@@ -527,20 +502,36 @@ function pickCustomer(id) {
   showToast(LANG.customer_selected, c.name + " " + LANG.selected + ".", "success");
 }
 
+function pickCustomer(id) {
+  if (customerCache[id]) {
+    pickCustomerFromData(customerCache[id]);
+    return;
+  }
+  const url = BASE_URL + "/api/search_customers.php?q=" + encodeURIComponent(id) + "&limit=1";
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      const c = data.customers ? data.customers[0] : null;
+      if (c) pickCustomerFromData(c);
+    })
+    .catch(() => showToast(LANG.error, LANG.network_error, "error"));
+}
+
 function changeCustomer() {
   document.getElementById("selected-customer-display").style.display = "none";
   document.getElementById("customer-search-box").style.display = "block";
   document.getElementById("cust-search-input").value = "";
   document.getElementById("cust-search-input").focus();
-  renderCustomerList(CUSTOMERS.filter(c => c.id !== 1));
+  renderCustomerList([]);
   document.getElementById("cust-dropdown").classList.add("open");
 }
 
 function updatePriceMode(type) {
   // Switch cart prices to wholesale or retail based on customer type
   cart.forEach(item => {
-    const p = PRODUCTS.find(x => x.id === item.id);
-    if (p) item.price = type === "wholesale" ? p.wholesale : p.price;
+    item.price = type === "wholesale"
+      ? (item.sell_mode === 'box' ? (item.box_wholesale || item.box_price) : item.wholesale)
+      : (item.sell_mode === 'box' ? item.box_price : item.retail_price);
   });
   renderCart();
   // Also re-render product grid so card prices reflect the customer type
@@ -578,13 +569,13 @@ function quickAddCustomer(e) {
     .then(r => r.json())
     .then(data => {
       if (data.success && data.customer) {
-        // Inject new customer into local CUSTOMERS array — no page reload needed
-        CUSTOMERS.push(data.customer);
+        // Cache new customer and select without page reload
+        customerCache[data.customer.id] = data.customer;
         showToast(LANG.success, LANG.customer_added + ": " + name, "success");
         closeModal("quick-customer-modal");
         // Auto-select the new customer
         document.querySelector(".cust-tab[data-tab=saved]").click();
-        setTimeout(() => pickCustomer(data.customer.id), 300);
+        setTimeout(() => pickCustomerFromData(data.customer), 300);
       } else {
         showToast(LANG.error, data.error || LANG.network_error, "error");
       }
@@ -597,8 +588,8 @@ function quickAddCustomer(e) {
 // ── PRODUCT GRID ──
 function renderProductGrid(prods) {
   const grid = document.getElementById("product-grid");
-  if (!prods.length) { grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">' + LANG.no_products + '</div>'; return; }
-  const currentCust = CUSTOMERS.find(c => c.id === selectedCustomerId);
+  if (!prods.length) { grid.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">' + LANG.search_products + '</div>'; return; }
+  const currentCust = customerCache[selectedCustomerId] || null;
   const isWholesale = currentCust && currentCust.type === "wholesale";
   grid.innerHTML = prods.map(p => {
     const displayPrice = isWholesale ? p.wholesale : p.price;
@@ -635,17 +626,64 @@ function renderProductGrid(prods) {
   }).join("");
 }
 
+let searchTimeout = null;
 function filterProducts(query) {
-  const cat = document.getElementById("pos-cat").value.toLowerCase();
-  const q   = query.toLowerCase();
-  renderProductGrid(PRODUCTS.filter(p =>
-    (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)) &&
-    (!cat || p.cat.toLowerCase() === cat)
-  ));
+  const cat = parseInt(document.getElementById("pos-cat").value, 10);
+  const q = query.toLowerCase();
+  if (searchTimeout) clearTimeout(searchTimeout);
+  if (!q && !cat) {
+    renderProductGrid([]);
+    return;
+  }
+  searchTimeout = setTimeout(function() { searchProducts(q, cat); }, 250);
+}
+
+function searchProducts(q, cat) {
+  const url = BASE_URL + "/api/search_products.php?q=" + encodeURIComponent(q) +
+              "&cat=" + encodeURIComponent(cat) + "&limit=50";
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (data.products) {
+        data.products.forEach(function(p) {
+          p.expiry_badge = getExpiryBadge(p);
+          productCache[p.id] = p;
+        });
+        renderProductGrid(data.products);
+      } else {
+        renderProductGrid([]);
+      }
+    })
+    .catch(() => showToast(LANG.error, LANG.network_error, "error"));
+}
+
+function fetchProductById(id, cb) {
+  const url = BASE_URL + "/api/search_products.php?q=" + encodeURIComponent(id) +
+              "&limit=1";
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      const p = data.products ? data.products[0] : null;
+      if (p) {
+        p.expiry_badge = getExpiryBadge(p);
+        productCache[p.id] = p;
+      }
+      cb(p);
+    })
+    .catch(() => cb(null));
 }
 
 function addToCart(id, sellMode) {
-  const p = PRODUCTS.find(x => x.id === id);
+  if (productCache[id]) {
+    addProductToCart(productCache[id], sellMode);
+    return;
+  }
+  fetchProductById(id, function(p) {
+    if (p) addProductToCart(p, sellMode);
+  });
+}
+
+function addProductToCart(p, sellMode) {
   if (!p) return;
   if (p.stock <= 0) { showToast(LANG.out_of_stock, p.name, "error"); return; }
 
@@ -655,9 +693,9 @@ function addToCart(id, sellMode) {
     return;
   }
 
-  const custType  = CUSTOMERS.find(c => c.id === selectedCustomerId);
-  const isWhole   = custType && custType.type === "wholesale";
-  const mode      = sellMode || 'unit';
+  const custType = customerCache[selectedCustomerId] || null;
+  const isWhole  = custType && custType.type === "wholesale";
+  const mode     = sellMode || 'unit';
 
   let usePrice, unitLabel, packSize;
   if (p.unit === 'box' && mode === 'box') {
@@ -672,12 +710,12 @@ function addToCart(id, sellMode) {
   }
 
   // Cart key = id + sellMode so same product can appear as both piece and box
-  const cartKey = id + '_' + mode;
+  const cartKey = p.id + '_' + mode;
   const existing = cart.find(i => i._key === cartKey);
   if (existing) {
     existing.qty++;
   } else {
-    cart.push({...p, _key: cartKey, price: usePrice, qty: 1, disc: 0,
+    cart.push({...p, retail_price: p.price, _key: cartKey, price: usePrice, qty: 1, disc: 0,
                sell_mode: mode, unit_label: unitLabel, pack_size: packSize,
                cat_id: p.cat_id, expiry_badge: p.expiry_badge});
   }
@@ -687,7 +725,7 @@ function addToCart(id, sellMode) {
 
 // ── Sell-mode picker for box products ─────────────────────────────────────
 function openSellModePicker(p) {
-  const custType = CUSTOMERS.find(c => c.id === selectedCustomerId);
+  const custType = customerCache[selectedCustomerId] || null;
   const isWhole  = custType && custType.type === "wholesale";
   const piecePrice = isWhole ? p.wholesale : p.price;
   const boxPrice   = isWhole ? (p.box_wholesale || p.box_price) : p.box_price;
@@ -942,7 +980,83 @@ function setDiscType(type) {
 
 function holdSale() {
   if (!cart.length) { showToast(LANG.warning, LANG.empty_cart, "warning"); return; }
-  showToast(LANG.hold_msg, LANG.success, "warning");
+  const holds = JSON.parse(localStorage.getItem('retailpro_holds') || '[]');
+  const hold = {
+    key: 'hold_' + Date.now(),
+    time: new Date().toLocaleString(),
+    cart: JSON.parse(JSON.stringify(cart)),
+    customer_id: selectedCustomerId,
+    appliedPromo: appliedPromo,
+    promoDiscount: promoDiscount,
+    discountType: discountType,
+    discountValue: document.getElementById("discount-value").value
+  };
+  holds.push(hold);
+  localStorage.setItem('retailpro_holds', JSON.stringify(holds));
+  clearCart();
+  document.querySelector(".cust-tab[data-tab=walkin]").click();
+  showToast(LANG.success, LANG.hold_msg, "success");
+}
+
+function showHoldModal() {
+  const holds = JSON.parse(localStorage.getItem('retailpro_holds') || '[]');
+  const list = document.getElementById("hold-list");
+  if (!holds.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px">' + LANG.no_held_sales + '</div>';
+  } else {
+    list.innerHTML = holds.map(function(h) {
+      const total = h.cart.reduce(function(a,i){ return a + i.price*i.qty; }, 0).toFixed(3);
+      const count = h.cart.reduce(function(a,i){ return a+i.qty; }, 0);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border-bottom:1px solid var(--border)">'
+        + '<div><div style="font-weight:500">' + h.time + '</div>'
+        + '<div style="font-size:11px;color:var(--text3)">' + count + ' ' + LANG.items + ' · <?= $currency ?> ' + total + '</div></div>'
+        + '<div style="display:flex;gap:6px">'
+        + '<button type="button" class="btn btn-primary btn-sm" onclick="resumeHold(\'' + h.key + '\')">' + LANG.resume + '</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteHold(\'' + h.key + '\')">🗑️</button>'
+        + '</div></div>';
+    }).join('');
+  }
+  openModal("hold-modal");
+}
+
+function resumeHold(key) {
+  const holds = JSON.parse(localStorage.getItem('retailpro_holds') || '[]');
+  const hold = holds.find(function(h){ return h.key === key; });
+  if (!hold) return;
+  cart = JSON.parse(JSON.stringify(hold.cart));
+  selectedCustomerId = hold.customer_id || 1;
+  document.getElementById("cart-customer").value = selectedCustomerId;
+  appliedPromo = hold.appliedPromo || null;
+  promoDiscount = hold.promoDiscount || 0;
+  discountType = hold.discountType || "pct";
+  document.getElementById("discount-value").value = hold.discountValue || 0;
+  setDiscType(discountType);
+  if (selectedCustomerId > 1) {
+    const url = BASE_URL + "/api/search_customers.php?q=" + encodeURIComponent(selectedCustomerId) + "&limit=1";
+    fetch(url)
+      .then(r => r.json())
+      .then(data => {
+        const c = data.customers ? data.customers[0] : null;
+        if (c) {
+          customerCache[c.id] = c;
+          document.querySelector(".cust-tab[data-tab=saved]").click();
+          setTimeout(function(){ pickCustomerFromData(c); }, 100);
+        }
+      });
+  } else {
+    document.querySelector(".cust-tab[data-tab=walkin]").click();
+  }
+  deleteHold(key);
+  closeModal("hold-modal");
+  renderCart();
+  showToast(LANG.success, LANG.hold_resumed, "success");
+}
+
+function deleteHold(key) {
+  let holds = JSON.parse(localStorage.getItem('retailpro_holds') || '[]');
+  holds = holds.filter(function(h){ return h.key !== key; });
+  localStorage.setItem('retailpro_holds', JSON.stringify(holds));
+  showHoldModal();
 }
 
 function getExpiryBadge(p) {
@@ -957,8 +1071,7 @@ function getExpiryBadge(p) {
   return null;
 }
 
-// Pre-compute expiry badges on PRODUCTS array
-PRODUCTS.forEach(function(p) { p.expiry_badge = getExpiryBadge(p); });
+// Expiry badges are computed when products are fetched via search API
 
 function processSale() {
   if (!cart.length) { showToast(LANG.warning, LANG.empty_cart, "warning"); return; }
