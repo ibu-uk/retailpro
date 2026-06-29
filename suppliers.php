@@ -9,25 +9,35 @@ $db = db();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $act = $_POST['action'] ?? '';
     if ($act === 'add') {
-        $db->prepare("INSERT INTO suppliers (company,company_ar,contact_name,contact_name_ar,email,phone,payment_terms,address,address_ar) VALUES (?,?,?,?,?,?,?,?,?)")->execute([
-            trim($_POST['company']), trim($_POST['company_ar'] ?? ''),
-            trim($_POST['contact_name'] ?? ''), trim($_POST['contact_name_ar'] ?? ''),
-            trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''),
-            $_POST['payment_terms'] ?? 'Net 30',
-            trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? '')
-        ]);
-        header('Location: ' . BASE . '/suppliers.php?success=' . urlencode('Supplier added')); exit;
+        try {
+            $db->prepare("INSERT INTO suppliers (company,company_ar,contact_name,contact_name_ar,email,phone,payment_terms,address,address_ar) VALUES (?,?,?,?,?,?,?,?,?)")->execute([
+                trim($_POST['company']), trim($_POST['company_ar'] ?? ''),
+                trim($_POST['contact_name'] ?? ''), trim($_POST['contact_name_ar'] ?? ''),
+                trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''),
+                $_POST['payment_terms'] ?? 'Net 30',
+                trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? '')
+            ]);
+            header('Location: ' . BASE . '/suppliers.php?success=' . urlencode('Supplier added'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/suppliers.php?error=' . urlencode('Failed to add supplier: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($act === 'edit') {
-        $db->prepare("UPDATE suppliers SET company=?,company_ar=?,contact_name=?,contact_name_ar=?,email=?,phone=?,payment_terms=?,address=?,address_ar=? WHERE id=?")->execute([
-            trim($_POST['company']), trim($_POST['company_ar'] ?? ''),
-            trim($_POST['contact_name'] ?? ''), trim($_POST['contact_name_ar'] ?? ''),
-            trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''),
-            $_POST['payment_terms'] ?? 'Net 30',
-            trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? ''),
-            (int)$_POST['supplier_id']
-        ]);
-        header('Location: ' . BASE . '/suppliers.php?success=' . urlencode('Supplier updated')); exit;
+        try {
+            $db->prepare("UPDATE suppliers SET company=?,company_ar=?,contact_name=?,contact_name_ar=?,email=?,phone=?,payment_terms=?,address=?,address_ar=? WHERE id=?")->execute([
+                trim($_POST['company']), trim($_POST['company_ar'] ?? ''),
+                trim($_POST['contact_name'] ?? ''), trim($_POST['contact_name_ar'] ?? ''),
+                trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''),
+                $_POST['payment_terms'] ?? 'Net 30',
+                trim($_POST['address'] ?? ''), trim($_POST['address_ar'] ?? ''),
+                (int)$_POST['supplier_id']
+            ]);
+            header('Location: ' . BASE . '/suppliers.php?success=' . urlencode('Supplier updated'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/suppliers.php?error=' . urlencode('Failed to update supplier: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($act === 'delete') {
         $sid = (int)$_POST['supplier_id'];

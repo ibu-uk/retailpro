@@ -21,6 +21,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     $unit  = trim($_POST['unit_type'] ?? 'pc');
     $psize = pack_size_for($unit, (int)($_POST['default_pack_size'] ?? 1));
 
+    if (trim($_POST['sku']) === '') {
+        header('Location: ' . BASE . '/products.php?error=' . urlencode('SKU is required. Please enter a unique product code.'));
+        exit;
+    }
+    // Check duplicate SKU
+    $sku_check = $db->prepare("SELECT id FROM products WHERE sku=?");
+    $sku_check->execute([trim($_POST['sku'])]);
+    if ($sku_check->fetch()) {
+        header('Location: ' . BASE . '/products.php?error=' . urlencode('SKU already exists: ' . trim($_POST['sku']) . '. Please use a different code.'));
+        exit;
+    }
+    try {
     $stmt = $db->prepare("
         INSERT INTO products
           (name,name_ar,emoji,sku,barcode,category_id,sub_category_id,brand,origin_country,
@@ -70,6 +82,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     ]);
     header('Location: ' . BASE . '/products.php?success=' . urlencode('Product added successfully'));
     exit;
+    } catch (Exception $e) {
+        header('Location: ' . BASE . '/products.php?error=' . urlencode('Failed to add product: ' . $e->getMessage()));
+        exit;
+    }
 }
 
 // ── EDIT ──────────────────────────────────────────────────────────────────

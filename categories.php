@@ -9,20 +9,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add_cat') {
-        $db->prepare("INSERT INTO categories (name,name_ar,emoji,parent_id,description) VALUES (?,?,?,?,?)")->execute([
-            trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['emoji'] ?: '📦'),
-            !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null,
-            trim($_POST['description'] ?? '')
-        ]);
-        header('Location: ' . BASE . '/categories.php?success=' . urlencode('Category added')); exit;
+        try {
+            $db->prepare("INSERT INTO categories (name,name_ar,emoji,parent_id,description) VALUES (?,?,?,?,?)")->execute([
+                trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['emoji'] ?: '📦'),
+                !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null,
+                trim($_POST['description'] ?? '')
+            ]);
+            header('Location: ' . BASE . '/categories.php?success=' . urlencode('Category added'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/categories.php?error=' . urlencode('Failed to add category: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($action === 'edit_cat') {
-        $db->prepare("UPDATE categories SET name=?,name_ar=?,emoji=?,parent_id=?,description=? WHERE id=?")->execute([
-            trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['emoji'] ?: '📦'),
-            !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null,
-            trim($_POST['description'] ?? ''), (int)$_POST['id']
-        ]);
-        header('Location: ' . BASE . '/categories.php?success=' . urlencode('Category updated')); exit;
+        try {
+            $db->prepare("UPDATE categories SET name=?,name_ar=?,emoji=?,parent_id=?,description=? WHERE id=?")->execute([
+                trim($_POST['name']), trim($_POST['name_ar'] ?? ''), trim($_POST['emoji'] ?: '📦'),
+                !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null,
+                trim($_POST['description'] ?? ''), (int)$_POST['id']
+            ]);
+            header('Location: ' . BASE . '/categories.php?success=' . urlencode('Category updated'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/categories.php?error=' . urlencode('Failed to update category: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($action === 'delete_cat') {
         $cid = (int)$_POST['id'];
@@ -39,16 +49,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . BASE . '/categories.php?success=' . urlencode('Status updated')); exit;
     }
     if ($action === 'add_unit') {
-        $db->prepare("INSERT INTO units (name,name_ar,abbreviation) VALUES (?,?,?)")->execute([
-            trim($_POST['unit_name']), trim($_POST['unit_name_ar'] ?? ''), trim($_POST['abbreviation'])
-        ]);
-        header('Location: ' . BASE . '/categories.php?tab=units&success=' . urlencode('Unit added')); exit;
+        try {
+            $db->prepare("INSERT INTO units (name,name_ar,abbreviation) VALUES (?,?,?)")->execute([
+                trim($_POST['unit_name']), trim($_POST['unit_name_ar'] ?? ''), trim($_POST['abbreviation'])
+            ]);
+            header('Location: ' . BASE . '/categories.php?tab=units&success=' . urlencode('Unit added'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/categories.php?tab=units&error=' . urlencode('Failed to add unit: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($action === 'edit_unit') {
-        $db->prepare("UPDATE units SET name=?,name_ar=?,abbreviation=? WHERE id=?")->execute([
-            trim($_POST['unit_name']), trim($_POST['unit_name_ar'] ?? ''), trim($_POST['abbreviation']), (int)$_POST['id']
-        ]);
-        header('Location: ' . BASE . '/categories.php?tab=units&success=' . urlencode('Unit updated')); exit;
+        try {
+            $db->prepare("UPDATE units SET name=?,name_ar=?,abbreviation=? WHERE id=?")->execute([
+                trim($_POST['unit_name']), trim($_POST['unit_name_ar'] ?? ''), trim($_POST['abbreviation']), (int)$_POST['id']
+            ]);
+            header('Location: ' . BASE . '/categories.php?tab=units&success=' . urlencode('Unit updated'));
+        } catch (Exception $e) {
+            header('Location: ' . BASE . '/categories.php?tab=units&error=' . urlencode('Failed to update unit: ' . $e->getMessage()));
+        }
+        exit;
     }
     if ($action === 'delete_unit') {
         $uid = (int)$_POST['id'];

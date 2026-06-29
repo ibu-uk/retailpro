@@ -116,7 +116,6 @@ require __DIR__ . '/includes/header.php';
 <?php endif; ?>
 
 <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:16px">
-  <button class="btn btn-ghost" onclick="showToast('Roles','Role configuration opened.','success')">⚙️ Manage Roles</button>
   <button class="btn btn-primary" onclick="openAddUser()">+ <?= __('add') ?></button>
 </div>
 

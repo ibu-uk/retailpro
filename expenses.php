@@ -8,11 +8,15 @@ $db = db();
 $currency = get_setting('currency', 'KWD');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
-    $db->prepare("INSERT INTO expenses (category,description,amount,branch_id,payment_mode,receipt_ref,created_by) VALUES (?,?,?,?,?,?,?)")->execute([
-        trim($_POST['category']), trim($_POST['description']), (float)$_POST['amount'],
-        $_POST['branch_id'] ?: null, $_POST['payment_mode'], trim($_POST['receipt_ref']), current_user()['id']
-    ]);
-    header('Location: ' . BASE . '/expenses.php?success=' . urlencode('Expense recorded'));
+    try {
+        $db->prepare("INSERT INTO expenses (category,description,amount,branch_id,payment_mode,receipt_ref,created_by) VALUES (?,?,?,?,?,?,?)")->execute([
+            trim($_POST['category']), trim($_POST['description']), (float)$_POST['amount'],
+            $_POST['branch_id'] ?: null, $_POST['payment_mode'], trim($_POST['receipt_ref']), current_user()['id']
+        ]);
+        header('Location: ' . BASE . '/expenses.php?success=' . urlencode('Expense recorded'));
+    } catch (Exception $e) {
+        header('Location: ' . BASE . '/expenses.php?error=' . urlencode('Failed to save expense: ' . $e->getMessage()));
+    }
     exit;
 }
 
