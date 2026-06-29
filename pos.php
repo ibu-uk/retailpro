@@ -324,6 +324,8 @@ const LANG      = <?= json_encode([
     'success'                => __('success'),
     'added'                  => __('add'),
     'out_of_stock'           => __('out_of_stock'),
+    'available_in_branches'  => __('available_in_branches'),
+    'other_branches_available' => __('other_branches_available'),
     'customer_added'         => __('customer_added'),
     'name_required'          => __('full_name'),
     'no_products'            => __('no_data'),
@@ -599,6 +601,9 @@ function renderProductGrid(prods) {
     const stockColor   = p.stock<=5 ? "var(--red)" : (p.stock<=10 ? "var(--amber)" : "var(--text3)");
     const arName       = p.name_ar ? '<span style="font-size:11px;color:var(--text3);display:block">'+p.name_ar+'</span>' : '';
     const warn         = p.stock<=5 ? " ⚠️" : "";
+    const otherBranches = (p.stock <= 0 && p.branch_stock && p.branch_stock.length)
+      ? '<div style="font-size:10px;color:var(--green);margin-top:2px">🏬 ' + LANG.other_branches_available + '</div>'
+      : '';
     // Build price line based on unit type
     let priceHTML;
     if (p.unit === 'box') {
@@ -623,6 +628,7 @@ function renderProductGrid(prods) {
       + priceHTML
       + (p.expiry_badge ? '<div style="font-size:10px;padding:2px 6px;border-radius:4px;margin-top:3px;display:inline-block;background:'+p.expiry_badge.bg+';color:'+p.expiry_badge.color+'">'+p.expiry_badge.label+'</div>' : '')
       + '<div class="product-stock" style="color:'+stockColor+'">'+p.stock+' '+LANG.in_stock+warn+'</div>'
+      + otherBranches
       + '</div>';
   }).join("");
 }
@@ -686,7 +692,15 @@ function addToCart(id, sellMode) {
 
 function addProductToCart(p, sellMode) {
   if (!p) return;
-  if (p.stock <= 0) { showToast(LANG.out_of_stock, p.name, "error"); return; }
+  if (p.stock <= 0) {
+    let msg = p.name;
+    if (p.branch_stock && p.branch_stock.length) {
+      const list = p.branch_stock.map(b => b.branch + ' (' + b.qty + ')').join(', ');
+      msg = LANG.available_in_branches + ': ' + list;
+    }
+    showToast(LANG.out_of_stock, msg, "error");
+    return;
+  }
 
   // Box products: if no sellMode given, show picker modal
   if (p.unit === 'box' && !sellMode) {

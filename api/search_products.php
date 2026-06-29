@@ -81,7 +81,25 @@ $params = array_merge($product_params, [$limit]);
 $stmt->execute($params);
 $products = $stmt->fetchAll();
 
-$out = array_map(function($p) {
+$product_ids = array_column($products, 'id');
+$branch_stock_map = [];
+if (!empty($product_ids)) {
+    $placeholders = implode(',', array_fill(0, count($product_ids), '?'));
+    $bs_stmt = $db->prepare("SELECT s.product_id, b.name as branch_name, s.qty
+        FROM stock s
+        JOIN branches b ON b.id = s.branch_id
+        WHERE s.product_id IN ($placeholders) AND s.qty > 0
+        ORDER BY s.product_id, s.qty DESC");
+    $bs_stmt->execute($product_ids);
+    foreach ($bs_stmt->fetchAll() as $row) {
+        $branch_stock_map[(int)$row['product_id']][] = [
+            'branch' => $row['branch_name'],
+            'qty' => (int)$row['qty']
+        ];
+    }
+}
+
+$out = array_map(function($p) use ($branch_stock_map) {
     $unit = $p['unit_type'] ?? 'pc';
     $pack = max(1, (int)($p['default_pack_size'] ?? 1));
     $isBox  = $unit === 'box';
@@ -106,6 +124,7 @@ $out = array_map(function($p) {
         'is_pack'   => $isBox || $isPair || $isDoz,
         'unit_label'=> $isPair ? 'pair' : ($isDoz ? 'dozen' : ($isBox ? "box({$pack}pcs)" : $unit)),
         'stock'     => (int)$p['stock'],
+        'branch_stock' => $branch_stock_map[(int)$p['id']] ?? [],
         'emoji'     => $p['emoji'] ?: ($p['sub_cat_emoji'] ?: ($p['cat_emoji'] ?: '📦')),
         'bg'        => 'rgba(67,97,238,0.08)',
         'barcode'      => $p['barcode'] ?? '',

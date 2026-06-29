@@ -606,6 +606,8 @@ return [
     'contact' => 'Contact',
     'payment_terms' => 'Payment Terms',
     'arabic' => 'Arabic',
+    'available_in_branches' => 'Available in',
+    'other_branches_available' => 'Available in other branches',
     'out_of_stock' => 'Out of Stock',
     'pending' => 'Pending',
     'completed' => 'Completed',

@@ -606,6 +606,8 @@ return [
     'contact' => 'جهة الاتصال',
     'payment_terms' => 'شروط الدفع',
     'arabic' => 'العربية',
+    'available_in_branches' => 'متوفر في',
+    'other_branches_available' => 'متوفر في فروع أخرى',
     'out_of_stock' => 'نفد المخزون',
     'pending' => 'معلق',
     'completed' => 'مكتمل',
