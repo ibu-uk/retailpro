@@ -181,7 +181,7 @@ require __DIR__ . '/includes/header.php';
       <input type="hidden" name="action" value="load_profile">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px">
         <?php foreach ($country_profiles as $code => $p): ?>
-        <label class="country-tile <?= $active_cc===$code?'active':'' ?>" onclick="selectCountry('<?= $code ?>')">
+        <label class="country-tile <?= $active_cc===$code?'active':'' ?>" data-code="<?= $code ?>">
           <input type="radio" name="country_code" value="<?= $code ?>" <?= $active_cc===$code?'checked':'' ?> style="display:none">
           <div style="font-size:24px;margin-bottom:4px"><?= $p['flag'] ?></div>
           <div style="font-size:12px;font-weight:600;color:var(--text)"><?= $p['name'] ?></div>
@@ -388,6 +388,7 @@ function selectCountry(code) {
   const radio = document.querySelector('input[name="country_code"][value="' + code + '"]');
   if (radio) radio.checked = true;
   document.getElementById('cc-hidden').value = code;
+  document.getElementById('profile-form').submit();
 }
 
 function onTaxTypeChange() {
@@ -435,7 +436,12 @@ if (logoToggle && logoLabel) {
 }
 
 document.querySelectorAll('.country-tile').forEach(t => {
-  t.setAttribute('data-code', t.querySelector('input[name="country_code"]').value);
+  const radio = t.querySelector('input[name="country_code"]');
+  if (radio) {
+    radio.addEventListener('change', function() {
+      selectCountry(this.value);
+    });
+  }
 });
 
 updatePreview();

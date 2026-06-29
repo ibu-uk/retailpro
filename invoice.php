@@ -6,7 +6,7 @@ $id = (int)($_GET['id'] ?? 0);
 if (!$id) die('Invoice ID required');
 $auto_print = isset($_GET['print']) && $_GET['print'] === '1';
 $printer_format = get_setting('printer_format', 'a4'); // Get default from settings
-$format_class = ($printer_format === '80mm') ? 'thermal' : 'a4';
+$format_class = ($printer_format === 'thermal' || $printer_format === '80mm') ? 'thermal' : 'a4';
 
 $db = db();
 $stmt = $db->prepare("
