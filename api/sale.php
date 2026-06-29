@@ -13,6 +13,7 @@ $customer_id   = (int)($data['customer_id']        ?? 1);
 $offer_id      = !empty($data['offer_id']) ? (int)$data['offer_id'] : null;
 $promo_disc    = (float)($data['promo_discount']   ?? 0);
 $partial_paid  = isset($data['paid_amount']) ? (float)$data['paid_amount'] : null;
+$payment_ref   = trim($data['payment_ref'] ?? '');
 $user          = current_user();
 $branch_id     = $user['branch_id'] ?? 1;
 
@@ -90,9 +91,9 @@ try {
     // ── Insert invoice ────────────────────────────────────────────────────
     $db->prepare("
         INSERT INTO invoices
-          (invoice_number,customer_id,branch_id,payment_mode,subtotal,discount,vat,total,paid_amount,status,created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    ")->execute([$inv_num, $customer_id, $branch_id, $pay_mode, $subtotal, $discount, 0, $total, $paid, $status, $user['id']]);
+          (invoice_number,customer_id,branch_id,payment_mode,subtotal,discount,vat,total,paid_amount,status,payment_ref,created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ")->execute([$inv_num, $customer_id, $branch_id, $pay_mode, $subtotal, $discount, 0, $total, $paid, $status, $payment_ref ?: null, $user['id']]);
     $inv_id = $db->lastInsertId();
 
     // ── Prepared statements ───────────────────────────────────────────────

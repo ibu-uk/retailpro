@@ -155,6 +155,12 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
         <td>Payment / الدفع</td>
         <td><?= strtoupper($inv['payment_mode']) ?></td>
       </tr>
+      <?php if (!empty($inv['payment_ref'])): ?>
+      <tr>
+        <td>KNET Ref / المرجع</td>
+        <td style="font-weight:bold"><?= htmlspecialchars($inv['payment_ref']) ?></td>
+      </tr>
+      <?php endif; ?>
     </table>
 
     <hr class="divider">

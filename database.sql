@@ -245,6 +245,7 @@ CREATE TABLE invoices (
   total DECIMAL(10,3) DEFAULT 0,
   paid_amount DECIMAL(10,3) DEFAULT 0,
   status ENUM('paid','partial','credit','refunded') DEFAULT 'paid',
+  payment_ref VARCHAR(100) DEFAULT NULL,
   notes TEXT,
   created_by INT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

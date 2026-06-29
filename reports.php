@@ -231,7 +231,11 @@ require __DIR__ . '/includes/header.php';
               </td>
             <td><?= htmlspecialchars($inv['branch_name']) ?></td>
             <td style="font-size:12px;color:var(--text3)"><?= date('d M Y H:i', strtotime($inv['created_at'])) ?></td>
-            <td><?= strtoupper(htmlspecialchars($inv['payment_mode'])) ?></td>
+            <td><?= strtoupper(htmlspecialchars($inv['payment_mode'])) ?>
+              <?php if (!empty($inv['payment_ref'])): ?>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">Ref: <?= htmlspecialchars($inv['payment_ref']) ?></div>
+              <?php endif; ?>
+            </td>
             <td class="text-green" style="font-weight:600"><?= fmt_money($inv['total']) ?></td>
             <td style="font-weight:500;color:<?= $inv['paid_amount'] >= $inv['total'] ? 'var(--green)' : 'var(--amber)' ?>">
               <?= fmt_money($inv['paid_amount']) ?>

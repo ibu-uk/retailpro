@@ -218,6 +218,11 @@ require __DIR__ . '/includes/header.php';
         <div class="pay-mode" data-mode="partial" onclick="selectPayMode(this)">📊 <?= __('partial') ?></div>
         <div class="pay-mode" data-mode="credit" onclick="selectPayMode(this)">💰 <?= __('credit') ?></div>
       </div>
+      <div id="knet-ref-box" style="display:none;margin-bottom:8px">
+        <label style="font-size:11px;color:var(--text3);margin-bottom:4px;display:block">💳 KNET Ref No. <span style="color:var(--red)">*</span></label>
+        <input type="text" class="form-input" id="knet-ref-input" maxlength="50" dir="ltr" placeholder="Min. 4 digits e.g. 123456" style="font-size:14px;font-weight:600;letter-spacing:1px">
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Enter the KNET transaction reference number</div>
+      </div>
       <div id="partial-pay-box" style="display:none;margin-bottom:8px">
         <label style="font-size:11px;color:var(--text3);margin-bottom:4px;display:block"><?= __('amount_paid_now') ?> (<?= $currency ?>)</label>
         <input type="number" class="form-input" id="partial-amount" step="0.001" min="0.001" dir="ltr" placeholder="0.000" style="font-size:14px;font-weight:600">
@@ -964,6 +969,14 @@ function selectPayMode(el) {
   el.classList.add("active");
   selectedPayMode = el.dataset.mode;
   document.getElementById("partial-pay-box").style.display = selectedPayMode === "partial" ? "block" : "none";
+  const knetBox = document.getElementById("knet-ref-box");
+  if (selectedPayMode === "knet") {
+    knetBox.style.display = "block";
+    document.getElementById("knet-ref-input").focus();
+  } else {
+    knetBox.style.display = "none";
+    document.getElementById("knet-ref-input").value = "";
+  }
 }
 
 function setDiscType(type) {
@@ -1099,6 +1112,8 @@ function processSale() {
   }
   if (selectedPayMode === "credit" && customerId == 1) { showToast(LANG.error, LANG.select_customer_credit, "warning"); return; }
   const paidAmount = selectedPayMode === "partial" ? parseFloat(document.getElementById("partial-amount").value)||0 : null;
+  const knetRef = selectedPayMode === "knet" ? document.getElementById("knet-ref-input").value.trim() : "";
+  if (selectedPayMode === "knet" && knetRef.length < 4) { showToast(LANG.error, "KNET Ref No. must be at least 4 characters.", "warning"); document.getElementById("knet-ref-input").focus(); return; }
   // ── Expiry check before submit ──────────────────────────────────────────
   const expiredItems = cart.filter(i => i.expiry_badge && i.expiry_badge.color === '#b91c1c');
   const warningItems = cart.filter(i => i.expiry_badge && i.expiry_badge.color === '#92400e');
@@ -1113,7 +1128,7 @@ function processSale() {
     // Allow sale to continue — just a warning
   }
 
-  const payload = { cart, payment_mode: selectedPayMode, discount_type: discountType, discount_value: discValue, customer_id: customerId, offer_id: appliedPromo ? appliedPromo.id : null, promo_discount: promoDiscount, paid_amount: paidAmount };
+  const payload = { cart, payment_mode: selectedPayMode, discount_type: discountType, discount_value: discValue, customer_id: customerId, offer_id: appliedPromo ? appliedPromo.id : null, promo_discount: promoDiscount, paid_amount: paidAmount, payment_ref: knetRef || null };
 
   fetch(BASE_URL + "/api/sale.php", {
     method:"POST",
