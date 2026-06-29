@@ -309,6 +309,7 @@ const LANG      = <?= json_encode([
     'in_stock'               => __('in_stock'),
     'no_customers'           => __('no_customers'),
     'no_data'                => __('no_data'),
+    'search_products'        => __('search_products'),
     'promo_applied'          => __('promo_applied'),
     'promo_not_found'        => __('promo_not_found'),
     'no_match_promo'         => __('no_match_promo'),
@@ -632,7 +633,7 @@ function filterProducts(query) {
   const q = query.toLowerCase();
   if (searchTimeout) clearTimeout(searchTimeout);
   if (!q && !cat) {
-    renderProductGrid([]);
+    searchTimeout = setTimeout(function() { searchProducts('', 0); }, 250);
     return;
   }
   searchTimeout = setTimeout(function() { searchProducts(q, cat); }, 250);
@@ -1136,7 +1137,7 @@ document.addEventListener("change", function(e) {
   }
 });
 
-renderProductGrid(PRODUCTS);
+searchProducts('', 0);
 // Initialize discount type on page load
 setTimeout(() => setDiscType("pct"), 100);
 

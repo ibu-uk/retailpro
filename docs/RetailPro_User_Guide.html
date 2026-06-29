@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RetailPro Mobile Shop - Complete User Guide</title>
+<style>
+  :root { --accent:#4361ee; --text:#1f2937; --muted:#6b7280; --bg:#f8fafc; --card:#fff; --border:#e2e8f0; }
+  * { box-sizing:border-box; }
+  body { font-family:Segoe UI, Roboto, Arial, sans-serif; color:var(--text); line-height:1.55; background:var(--bg); margin:0; padding:0; }
+  .print-btn { position:fixed; top:16px; right:16px; z-index:100; padding:10px 18px; background:var(--accent); color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600; }
+  .container { max-width:900px; margin:0 auto; padding:40px 24px; background:var(--card); }
+  .cover { text-align:center; padding:60px 20px 40px; border-bottom:3px solid var(--accent); margin-bottom:30px; }
+  .cover h1 { font-size:42px; margin:0 0 12px; color:var(--accent); }
+  .cover p { font-size:18px; color:var(--muted); margin:0; }
+  .toc { background:#f1f5f9; padding:24px; border-radius:12px; margin-bottom:40px; }
+  .toc h2 { margin-top:0; font-size:24px; }
+  .toc ul { columns:2; column-gap:40px; }
+  .toc li { margin-bottom:8px; break-inside:avoid; }
+  .toc a { text-decoration:none; color:var(--accent); }
+  h2 { color:var(--accent); border-bottom:2px solid var(--border); padding-bottom:8px; margin-top:40px; font-size:26px; page-break-after:avoid; }
+  h3 { color:#334155; margin-top:28px; font-size:20px; page-break-after:avoid; }
+  h4 { color:#475569; margin-top:20px; font-size:17px; }
+  ul, ol { margin:10px 0; padding-left:24px; }
+  li { margin-bottom:8px; }
+  .note { background:#eff6ff; border-left:4px solid var(--accent); padding:12px 16px; margin:16px 0; border-radius:0 8px 8px 0; }
+  .warning { background:#fff7ed; border-left:4px solid #f59e0b; padding:12px 16px; margin:16px 0; border-radius:0 8px 8px 0; }
+  .step { background:#f8fafc; padding:14px 18px; margin:10px 0; border-radius:10px; border:1px solid var(--border); }
+  .step-title { font-weight:700; color:var(--accent); margin-bottom:6px; }
+  table { width:100%; border-collapse:collapse; margin:16px 0; font-size:14px; }
+  th, td { border:1px solid var(--border); padding:10px 12px; text-align:left; }
+  th { background:#f1f5f9; font-weight:600; }
+  code { background:#f1f5f9; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:13px; }
+  hr { border:0; border-top:1px solid var(--border); margin:30px 0; }
+  @media print {
+    .print-btn { display:none!important; }
+    body { background:#fff; }
+    .container { padding:0; }
+    .toc ul { columns:1; }
+    h2 { page-break-before:always; }
+    h2:first-of-type { page-break-before:auto; }
+    .note, .warning, .step { break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+
+<div class="container">
+
+<div class="cover">
+  <h1>🛍️ RetailPro Mobile Shop</h1>
+  <p>Complete User Guide for Buyers & Staff</p>
+  <p style="font-size:14px; margin-top:10px;">KWD · Arabic/English · Multi-Branch Ready</p>
+</div>
+
+<div class="toc">
+  <h2>📑 Table of Contents</h2>
+  <ul>
+    <li><a href="#start">1. Getting Started</a></li>
+    <li><a href="#pos">2. POS — Make a Sale</a></li>
+    <li><a href="#products">3. Products & Categories</a></li>
+    <li><a href="#inventory">4. Inventory & Stock</a></li>
+    <li><a href="#batches">5. Batches & Expiry</a></li>
+    <li><a href="#suppliers">6. Suppliers & Purchases</a></li>
+    <li><a href="#customers">7. Customers</a></li>
+    <li><a href="#quotations">8. Quotations</a></li>
+    <li><a href="#invoices">9. Invoices & Refunds</a></li>
+    <li><a href="#reports">10. Reports</a></li>
+    <li><a href="#payments">11. Payments</a></li>
+    <li><a href="#expenses">12. Expenses</a></li>
+    <li><a href="#branches">13. Branches</a></li>
+    <li><a href="#users">14. Users & Roles</a></li>
+    <li><a href="#offers">15. Offers / Promotions</a></li>
+    <li><a href="#settings">16. Settings</a></li>
+    <li><a href="#accounting">17. Accounting</a></li>
+    <li><a href="#tips">18. Tips & Troubleshooting</a></li>
+  </ul>
+</div>
+
+<h2 id="start">1. 🚀 Getting Started</h2>
+
+<h3>🔑 Login</h3>
+<ol>
+  <li>Open your browser and go to the app URL.</li>
+  <li>Enter your <strong>email</strong> and <strong>password</strong>.</li>
+  <li>Click <strong>Login</strong>.</li>
+</ol>
+<div class="note">💡 Default super admin: <code>admin@retailpro.kw</code> / <code>admin123</code>. Change this after first login.</div>
+
+<h3>🌐 Switch Language</h3>
+<p>Click the 🌐 <strong>English / Arabic</strong> button in the top bar. The entire interface switches instantly, including numbers and invoice printouts.</p>
+
+<h3>🧭 Navigation Menu</h3>
+<p>Use the left sidebar or the ☰ mobile menu:</p>
+<table>
+  <tr><th>Section</th><th>Pages</th></tr>
+  <tr><td>Core</td><td>Dashboard, POS, Refunds, Products, Categories, Inventory, Batches</td></tr>
+  <tr><td>People</td><td>Customers, Suppliers</td></tr>
+  <tr><td>Finance</td><td>Purchases, Quotations, Payments, Expenses</td></tr>
+  <tr><td>Management</td><td>Branches, Offers, Reports, Accounting, Users, Settings</td></tr>
+</table>
+
+<h3>👤 Roles</h3>
+<table>
+  <tr><th>Role</th><th>What they can do</th></tr>
+  <tr><td>Super Admin</td><td>Everything: settings, users, branches, all money.</td></tr>
+  <tr><td>Manager</td><td>Most things, but not all settings.</td></tr>
+  <tr><td>Cashier</td><td>POS, refunds, invoices, customers.</td></tr>
+  <tr><td>Inventory</td><td>Products, inventory, stock transfers, purchases.</td></tr>
+</table>
+
+<h2 id="pos">2. 🏪 POS — Make a Sale</h2>
+
+<h3>🖥️ Open POS</h3>
+<p>Click <strong>POS</strong> in the menu. The screen is split into two parts:</p>
+<ul>
+  <li><strong>Left</strong> — Product search and catalog.</li>
+  <li><strong>Right</strong> — Cart, customer, totals, and checkout.</li>
+</ul>
+
+<h3>👤 Select a Customer</h3>
+<ol>
+  <li>Click the customer tab. Choose <strong>Walk-in</strong> or <strong>Saved Customer</strong>.</li>
+  <li>For a saved customer, type the name or phone in the search box. Results appear as you type.</li>
+  <li>Click the customer to select.</li>
+</ol>
+<div class="note">💡 For wholesale customers, the POS automatically uses wholesale prices.</div>
+
+<h3>➕ Quick Add a New Customer</h3>
+<ol>
+  <li>Click the <strong>+ Quick Add</strong> button in the customer area.</li>
+  <li>Enter name, phone, and type (retail or wholesale).</li>
+  <li>Click <strong>Save</strong>. The customer is selected immediately without losing the cart.</li>
+</ol>
+
+<h3>🔍 Find a Product</h3>
+<ol>
+  <li>Click the product search box and type the product name, SKU, or barcode.</li>
+  <li>Click the product card to add it to the cart.</li>
+  <li>Or use a barcode scanner — it automatically searches and adds the product.</li>
+</ol>
+<div class="note">💡 Only products with stock in your current branch will appear.</div>
+
+<h3>🛒 Add to Cart</h3>
+<ul>
+  <li>Click a product once to add 1 unit.</li>
+  <li>Click the <strong>+</strong> / <strong>−</strong> buttons to change quantity.</li>
+  <li>Click the 🗑️ icon to remove an item.</li>
+  <li>Click the item to apply a manual discount.</li>
+</ul>
+
+<h3>📦 Sell by Box / Pair / Dozen</h3>
+<p>Some products support pack selling (e.g., a box of 12 chargers, a pair of earphones, a dozen cables).</p>
+<ol>
+  <li>Click the product card.</li>
+  <li>If the product is set as a pack, a popup asks: <strong>Unit</strong> or <strong>Box</strong> / <strong>Pair</strong> / <strong>Dozen</strong>.</li>
+  <li>Choose the mode. The cart shows the pack label and adjusts the price.</li>
+</ol>
+<div class="note">💡 Selling one box deducts the pack size (e.g., 12 pieces) from stock.</div>
+
+<h3>🏷️ Apply a Discount</h3>
+<ol>
+  <li>Click the cart item.</li>
+  <li>Enter the discount amount in KWD.</li>
+  <li>Click <strong>Apply</strong>.</li>
+</ol>
+
+<h3>🎯 Apply an Offer / Promotion</h3>
+<ol>
+  <li>At the bottom of the cart, click the <strong>Offers</strong> dropdown.</li>
+  <li>Select an active offer (e.g., Buy 2 iPhone cases, get 10% off).</li>
+  <li>The discount is applied automatically on the server side.</li>
+</ol>
+
+<h3>⏸️ Hold a Cart</h3>
+<ol>
+  <li>Click the <strong>Hold</strong> button.</li>
+  <li>Give the cart a name (e.g., customer name).</li>
+  <li>The cart is saved in the browser. You can serve other customers.</li>
+</ol>
+
+<h3>▶️ Resume a Held Cart</h3>
+<ol>
+  <li>Click the <strong>Resume</strong> button.</li>
+  <li>Select the held cart from the list.</li>
+  <li>The cart is restored with customer and items.</li>
+</ol>
+
+<h3>💳 Checkout</h3>
+<ol>
+  <li>Review the cart, subtotal, discount, tax, and total.</li>
+  <li>Choose payment mode: <strong>Cash</strong>, <strong>KNET</strong>, <strong>WAMD</strong>, <strong>Transfer</strong>, or <strong>Credit</strong>.</li>
+  <li>For credit or partial payment, enter the amount paid.</li>
+  <li>Click <strong>Complete Sale</strong>.</li>
+  <li>The invoice prints automatically or opens the print page.</li>
+</ol>
+<div class="warning">⚠️ Credit sales will increase the customer’s outstanding balance. Make sure they are allowed credit.</div>
+
+<h3>🧾 Print Receipt</h3>
+<ul>
+  <li>The invoice print page opens after sale.</li>
+  <li>Click the browser print button or press <code>Ctrl+P</code> / <code>Cmd+P</code>.</li>
+  <li>For thermal receipt, set printer format to 80mm in Settings.</li>
+</ul>
+
+<h2 id="products">3. 🏷️ Products & Categories</h2>
+
+<h3>➕ Add a Product</h3>
+<ol>
+  <li>Go to <strong>Products</strong> → click <strong>Add Product</strong>.</li>
+  <li>Fill in:
+    <ul>
+      <li><strong>Name</strong> (English)</li>
+      <li><strong>Arabic Name</strong> (for Arabic invoices)</li>
+      <li><strong>SKU</strong> — unique product code</li>
+      <li><strong>Barcode</strong> — for scanner</li>
+      <li><strong>Category</strong></li>
+      <li><strong>Brand</strong>, <strong>Color</strong>, <strong>Size</strong></li>
+      <li><strong>Cost Price</strong> — what you paid the supplier</li>
+      <li><strong>Retail Price</strong> — normal selling price</li>
+      <li><strong>Wholesale Price</strong> — for wholesale customers</li>
+      <li><strong>Unit Type</strong> — piece, pair, dozen, box, kg, g, m</li>
+      <li><strong>Pack Size</strong> — for box only (e.g., 12 pieces per box)</li>
+      <li><strong>Initial Stock</strong> — adds stock to all branches when creating</li>
+    </ul>
+  </li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>✏️ Edit / Delete a Product</h3>
+<ol>
+  <li>On the Products list, click the ✏️ edit icon.</li>
+  <li>Change the fields you need.</li>
+  <li>Click <strong>Update</strong>.</li>
+  <li>To delete, click the 🗑️ icon. You can only delete products with no invoices.</li>
+</ol>
+
+<h3>📂 Add a Category</h3>
+<ol>
+  <li>Go to <strong>Categories</strong>.</li>
+  <li>Enter category name and emoji (e.g., 📱 Mobile Phones).</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+<div class="note">💡 Use emojis to make products easy to find in POS.</div>
+
+<h3>📦 Box vs Piece — How It Works</h3>
+<table>
+  <tr><th>Unit Type</th><th>Pack Size</th><th>Example</th></tr>
+  <tr><td>Piece</td><td>1</td><td>Single iPhone, single charger</td></tr>
+  <tr><td>Pair</td><td>2</td><td>Two earphones sold together</td></tr>
+  <tr><td>Dozen</td><td>12</td><td>12 screen protectors sold together</td></tr>
+  <tr><td>Box</td><td>You define</td><td>Box of 12 chargers</td></tr>
+</table>
+
+<h2 id="inventory">4. 🗄️ Inventory & Stock</h2>
+
+<h3>📊 View Stock Levels</h3>
+<ol>
+  <li>Go to <strong>Inventory</strong>.</li>
+  <li>Use the filters: branch, category, search.</li>
+  <li>The table shows current quantity for each product per branch.</li>
+</ol>
+<div class="note">💡 Products with low stock (≤ 5) show a warning. The sidebar also shows the low-stock count.</div>
+
+<h3>➕ Stock IN / Stock OUT</h3>
+<ol>
+  <li>On the Inventory page, click <strong>Add Movement</strong>.</li>
+  <li>Select type: <strong>Stock IN</strong> or <strong>Stock OUT</strong>.</li>
+  <li>Select the branch.</li>
+  <li>Type the product name in the search box and select it.</li>
+  <li>Enter quantity and reference (e.g., manual adjustment).</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🔄 Transfer Stock Between Branches</h3>
+<ol>
+  <li>Click <strong>Add Movement</strong>.</li>
+  <li>Select type: <strong>Transfer</strong>.</li>
+  <li>Select <strong>Source Branch</strong> (e.g., Main Branch).</li>
+  <li>Select <strong>Destination Branch</strong>.</li>
+  <li>Select product and enter quantity.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+<div class="warning">⚠️ You cannot transfer to the same branch. The source must have enough stock.</div>
+
+<h3>📝 Stock Movements History</h3>
+<p>Scroll down on the Inventory page. Filter by type (IN, OUT, Transfer, Damage, Return) to see all changes.</p>
+
+<h3>💔 Mark Damaged / Returned Stock</h3>
+<p>Use the same <strong>Add Movement</strong> form, but select type <strong>Damage</strong> or <strong>Return</strong>. The quantity will be deducted from stock.</p>
+
+<h2 id="batches">5. 🏷️ Batches & Expiry</h2>
+
+<h3>🧪 What Are Batches?</h3>
+<p>Batches track products with expiry dates, like SIM cards, batteries, or promotional items. Each batch has a number, supplier, expiry date, and quantity.</p>
+
+<h3>➕ Add a Batch</h3>
+<ol>
+  <li>Go to <strong>Batches & Expiry</strong>.</li>
+  <li>Click <strong>Add Batch</strong>.</li>
+  <li>Select product, supplier, branch.</li>
+  <li>Enter batch number, expiry date, and quantity.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🔔 Expiry Alerts</h3>
+<p>The sidebar shows a red badge when products are expiring within 90 days. Go to Batches to see which items expire soon.</p>
+
+<h3>📉 FIFO Selling</h3>
+<p>When you sell a batched product, the system automatically deducts from the oldest batch first.</p>
+
+<h2 id="suppliers">6. 🏭 Suppliers & Purchases</h2>
+
+<h3>➕ Add a Supplier</h3>
+<ol>
+  <li>Go to <strong>Suppliers</strong>.</li>
+  <li>Click <strong>Add Supplier</strong>.</li>
+  <li>Enter company name, contact person, phone, email, VAT number, payment terms, and address.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🛒 Create a Purchase Order (PO)</h3>
+<ol>
+  <li>Go to <strong>Purchases</strong>.</li>
+  <li>Click <strong>New Purchase Order</strong>.</li>
+  <li>Select <strong>Supplier</strong> and <strong>Branch</strong> (where stock will be received).</li>
+  <li>Add items:
+    <ul>
+      <li>Click <strong>Add Item</strong>.</li>
+      <li>Select product from search.</li>
+      <li>Enter quantity and unit cost.</li>
+      <li>For box products, enter pack size.</li>
+    </ul>
+  </li>
+  <li>Click <strong>Save PO</strong>.</li>
+</ol>
+
+<h3>📥 Receive Stock from PO</h3>
+<ol>
+  <li>In the Purchases list, find the PO.</li>
+  <li>Click <strong>Mark Complete</strong>.</li>
+  <li>The system adds all items to the branch stock automatically.</li>
+  <li>Supplier balance increases (you now owe the supplier).</li>
+</ol>
+
+<h3>💰 Pay a Supplier</h3>
+<ol>
+  <li>Go to <strong>Payments</strong>.</li>
+  <li>Select type <strong>Supplier</strong>.</li>
+  <li>Choose the supplier.</li>
+  <li>Enter amount and payment mode.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+<div class="note">💡 Supplier balance turns to 0 when fully paid. Negative balance means you owe them.</div>
+
+<h3>🖨️ Print PO</h3>
+<p>On the Purchases list, click the PO number to open the print page. Use browser print to save as PDF or print.</p>
+
+<h2 id="customers">7. 👥 Customers</h2>
+
+<h3>➕ Add a Customer</h3>
+<ol>
+  <li>Go to <strong>Customers</strong>.</li>
+  <li>Click <strong>Add Customer</strong>.</li>
+  <li>Enter name, company name, phone, email, address.</li>
+  <li>Choose type: <strong>Retail</strong> or <strong>Wholesale</strong>.</li>
+  <li>Set <strong>Credit Limit</strong> if they are allowed to buy on credit.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🔍 Search Customers</h3>
+<p>Use the search box to filter by name, company, phone, or email. Use the balance filter to find customers who owe money.</p>
+
+<h3>💳 Customer Balance</h3>
+<table>
+  <tr><th>Balance</th><th>Meaning</th></tr>
+  <tr><td>Negative (e.g., -50 KWD)</td><td>Customer owes you money.</td></tr>
+  <tr><td>Zero</td><td>All invoices are paid.</td></tr>
+  <tr><td>Positive (e.g., 50 KWD)</td><td>Customer paid in advance.</td></tr>
+</table>
+
+<h3>💰 Receive Customer Payment</h3>
+<ol>
+  <li>Go to <strong>Payments</strong>.</li>
+  <li>Select type <strong>Customer</strong>.</li>
+  <li>Choose the customer.</li>
+  <li>Enter amount and payment mode.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+<div class="note">💡 The system will automatically settle the oldest unpaid invoices first.</div>
+
+<h3>✏️ Edit / Delete Customer</h3>
+<ol>
+  <li>Click the ✏️ icon on the customer row.</li>
+  <li>Update details and save.</li>
+  <li>You can only delete customers with no invoices.</li>
+</ol>
+
+<h2 id="quotations">8. 📋 Quotations</h2>
+
+<h3>➕ Create a Quotation</h3>
+<ol>
+  <li>Go to <strong>Quotations</strong>.</li>
+  <li>Click <strong>New Quotation</strong>.</li>
+  <li>Select customer and branch.</li>
+  <li>Add products, quantities, and prices.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🖨️ Print / Convert Quotation</h3>
+<ol>
+  <li>Open the quotation by clicking the quote number.</li>
+  <li>Click <strong>Print</strong> to print or save as PDF.</li>
+  <li>Click <strong>Convert to Invoice</strong> when the customer accepts the quote.</li>
+</ol>
+<div class="note">💡 Quotations do not affect stock until converted to an invoice.</div>
+
+<h2 id="invoices">9. 🧾 Invoices & Refunds</h2>
+
+<h3>📜 View Invoices</h3>
+<ol>
+  <li>Go to <strong>Reports</strong> or click the invoice history link.</li>
+  <li>Filter by date, branch, or customer.</li>
+  <li>Click an invoice number to view details.</li>
+</ol>
+
+<h3>🖨️ Reprint an Invoice</h3>
+<ol>
+  <li>Click the invoice number.</li>
+  <li>Click the 🖨️ print button or use browser print.</li>
+</ol>
+
+<h3>↩️ Process a Refund</h3>
+<ol>
+  <li>Go to <strong>Refunds</strong>.</li>
+  <li>Enter the invoice number or search by customer.</li>
+  <li>Select the invoice.</li>
+  <li>Choose which items to return and enter return quantity.</li>
+  <li>Choose refund mode: <strong>Return to stock</strong> or <strong>Do not return</strong>.</li>
+  <li>Click <strong>Process Refund</strong>.</li>
+  <li>The invoice is updated and stock is restored if selected.</li>
+</ol>
+<div class="warning">⚠️ Refunds can only be done within the refund period set in Settings.</div>
+
+<h3>🗑️ Delete an Invoice</h3>
+<ol>
+  <li>Go to <strong>Reports</strong>.</li>
+  <li>Find the invoice and click <strong>Delete</strong>.</li>
+  <li>Confirm the deletion.</li>
+</ol>
+<div class="warning">⚠️ Deleting an invoice returns all stock and reverses the customer balance. Only managers/admins can do this.</div>
+
+<h2 id="reports">10. 📈 Reports</h2>
+
+<h3>📊 Sales Reports</h3>
+<ol>
+  <li>Go to <strong>Reports</strong>.</li>
+  <li>Select date range and branch.</li>
+  <li>Click <strong>Generate</strong>.</li>
+  <li>See total sales, collected, outstanding, gross profit, and invoice count.</li>
+</ol>
+
+<h3>💹 Profit & Loss</h3>
+<p>Click the <strong>Profit & Loss</strong> tab to see gross profit minus expenses for the selected period.</p>
+
+<h3>📁 Category Breakdown</h3>
+<p>Click the <strong>Category Breakdown</strong> tab to see which product categories sold the most.</p>
+
+<h3>📅 Daily Trend</h3>
+<p>Click the <strong>Daily Trend</strong> tab to see sales per day with a bar chart.</p>
+
+<h3>💳 Payment Modes</h3>
+<p>Click the <strong>Payment Modes</strong> tab to see how much was paid by cash, KNET, transfer, etc.</p>
+
+<h3>📥 Export to Excel</h3>
+<ol>
+  <li>Generate the report.</li>
+  <li>Click the <strong>📊 Excel</strong> button.</li>
+  <li>A CSV file downloads and opens in Excel.</li>
+</ol>
+
+<h3>🖨️ Print Reports</h3>
+<p>Click the <strong>Print</strong> button. The report will be formatted for printing.</p>
+
+<h2 id="payments">11. 💳 Payments</h2>
+
+<h3>📝 Record a Payment</h3>
+<ol>
+  <li>Go to <strong>Payments</strong>.</li>
+  <li>Select type: <strong>Customer</strong> or <strong>Supplier</strong>.</li>
+  <li>Select the person/company.</li>
+  <li>Enter amount and payment mode.</li>
+  <li>Add notes if needed.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🔍 Payment History</h3>
+<p>The Payments page shows all recorded payments. You can filter by type and search by name.</p>
+
+<h3>✏️ Edit / Delete a Payment</h3>
+<ol>
+  <li>Click the ✏️ or 🗑️ icon on the payment row.</li>
+  <li>Delete will reverse the customer or supplier balance automatically.</li>
+</ol>
+
+<h3>💵 Customer Dues</h3>
+<p>The sidebar shows the number of customers who owe money. Click the 🔔 notification icon to go to Payments.</p>
+
+<h2 id="expenses">12. 💸 Expenses</h2>
+
+<h3>➕ Add an Expense</h3>
+<ol>
+  <li>Go to <strong>Expenses</strong>.</li>
+  <li>Click <strong>Add Expense</strong>.</li>
+  <li>Enter category (e.g., Rent, Salary, Utilities), description, amount, branch, and payment mode.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>📊 Expenses in Reports</h3>
+<p>Expenses are included in the Profit & Loss report and affect net profit.</p>
+
+<h2 id="branches">13. 🏢 Branches</h2>
+
+<h3>➕ Add a Branch</h3>
+<ol>
+  <li>Go to <strong>Branches</strong>.</li>
+  <li>Click <strong>Add Branch</strong>.</li>
+  <li>Enter name, address, phone, and manager name.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>✏️ Edit / Disable a Branch</h3>
+<ol>
+  <li>Click the ✏️ icon to edit.</li>
+  <li>Uncheck <strong>Active</strong> to disable the branch without deleting data.</li>
+</ol>
+
+<h3>🔄 Stock Between Branches</h3>
+<p>See the Inventory section to transfer stock between branches.</p>
+
+<h2 id="users">14. 🔐 Users & Roles</h2>
+
+<h3>➕ Add a User</h3>
+<ol>
+  <li>Go to <strong>Users</strong>.</li>
+  <li>Click <strong>Add User</strong>.</li>
+  <li>Enter name, email, password, role, and branch.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>👤 Assign Branch to Cashier</h3>
+<p>When adding a cashier, select their branch. They will only see their branch’s stock and invoices.</p>
+
+<h3>🚫 Deactivate a User</h3>
+<ol>
+  <li>Click the ✏️ icon.</li>
+  <li>Uncheck <strong>Active</strong>.</li>
+  <li>Click <strong>Update</strong>.</li>
+</ol>
+
+<h2 id="offers">15. 🎯 Offers / Promotions</h2>
+
+<h3>➕ Create an Offer</h3>
+<ol>
+  <li>Go to <strong>Offers</strong>.</li>
+  <li>Click <strong>Add Offer</strong>.</li>
+  <li>Enter offer name, discount type (percentage or fixed amount), and value.</li>
+  <li>Set minimum quantity or applicable categories/products.</li>
+  <li>Set start and end date.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🛒 Use Offer in POS</h3>
+<ol>
+  <li>In POS, add qualifying products to the cart.</li>
+  <li>Select the offer from the <strong>Offers</strong> dropdown.</li>
+  <li>The discount is applied automatically.</li>
+</ol>
+<div class="note">💡 Discounts are recalculated on the server to prevent manipulation.</div>
+
+<h2 id="settings">16. ⚙️ Settings</h2>
+
+<h3>🏢 Company Settings</h3>
+<ol>
+  <li>Go to <strong>Settings</strong> → <strong>Company</strong> tab.</li>
+  <li>Enter company name (English and Arabic), address, phone.</li>
+  <li>Upload a company logo.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🌍 Country / Tax Profile</h3>
+<ol>
+  <li>Go to <strong>Settings</strong> → <strong>Tax</strong> tab.</li>
+  <li>Select a country profile (Kuwait, UAE, Saudi, etc.).</li>
+  <li>Or manually set currency, tax type, tax rate, and VAT number.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+<table>
+  <tr><th>Tax Type</th><th>When to Use</th></tr>
+  <tr><td>None</td><td>No tax, like Kuwait default.</td></tr>
+  <tr><td>VAT</td><td>Tax added on top of price.</td></tr>
+  <tr><td>Inclusive VAT</td><td>Tax already included in the price.</td></tr>
+</table>
+
+<h3>🧾 Invoice Settings</h3>
+<ol>
+  <li>Go to <strong>Settings</strong> → <strong>Invoice</strong> tab.</li>
+  <li>Set invoice prefix (e.g., <code>INV-</code>).</li>
+  <li>Enter invoice footer text.</li>
+  <li>Choose printer format: <strong>A4</strong> or <strong>80mm Thermal</strong>.</li>
+  <li>Set refund period days.</li>
+  <li>Click <strong>Save</strong>.</li>
+</ol>
+
+<h3>🔒 Session Timeout</h3>
+<p>Users are automatically logged out after 2 hours of inactivity. This protects the system.</p>
+
+<h2 id="accounting">17. 📒 Accounting</h2>
+
+<h3>📖 Financial Statements</h3>
+<ol>
+  <li>Go to <strong>Accounting</strong>.</li>
+  <li>View <strong>Income Statement</strong>, <strong>Balance Sheet</strong>, and <strong>Cash Flow</strong>.</li>
+  <li>Select date range and click <strong>Generate</strong>.</li>
+</ol>
+
+<h3>📊 Trial Balance</h3>
+<p>See all accounts and their balances. Useful for accountants.</p>
+
+<h3>📥 Export</h3>
+<p>Click export buttons to download reports for accounting software.</p>
+
+<h2 id="tips">18. 💡 Tips & Troubleshooting</h2>
+
+<h3>✅ Best Practices</h3>
+<ul>
+  <li>Always select the correct customer before checkout.</li>
+  <li>Close the day by checking the daily sales report.</li>
+  <li>Check the low-stock badge in the sidebar every morning.</li>
+  <li>Record supplier payments immediately to keep balances accurate.</li>
+  <li>Do not delete invoices unless necessary; use refunds instead.</li>
+</ul>
+
+<h3>⚠️ Common Issues</h3>
+<table>
+  <tr><th>Issue</th><th>Solution</th></tr>
+  <tr><td>Product not found in POS</td><td>Check stock in the correct branch and that product is active.</td></tr>
+  <tr><td>Stock transfer fails</td><td>Make sure source branch has enough stock.</td></tr>
+  <tr><td>Customer not showing</td><td>Make sure the customer is active.</td></tr>
+  <tr><td>Session expired</td><td>Log in again. Your work was saved if you used Hold.</td></tr>
+  <tr><td>Invoice print looks wrong</td><td>Change printer format in Settings → Invoice.</td></tr>
+</table>
+
+<h3>🆘 Need Help?</h3>
+<p>Contact your system administrator or developer. Check the <strong>logs</strong> folder if something is not working.</p>
+
+<hr>
+<p style="text-align:center; color:var(--muted); font-size:13px;">🛍️ RetailPro Mobile Shop — User Guide — Generated 2026</p>
+
+</div>
+</body>
+</html>
