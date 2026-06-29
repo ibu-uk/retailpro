@@ -6,6 +6,7 @@ $id = (int)($_GET['id'] ?? 0);
 if (!$id) die('Invoice ID required');
 $auto_print = isset($_GET['print']) && $_GET['print'] === '1';
 $printer_format = get_setting('printer_format', 'a4'); // Get default from settings
+$format_class = ($printer_format === '80mm') ? 'thermal' : 'a4';
 
 $db = db();
 $stmt = $db->prepare("
@@ -58,6 +59,19 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Courier New', Courier, monospace; background: #e0e0e0; display: flex; justify-content: center; padding: 20px; }
     .receipt { background: #fff; width: 320px; padding: 16px 14px; font-size: 11px; color: #000; line-height: 1.5; }
+    .receipt.a4 { width: 210mm; min-height: 297mm; padding: 20mm; font-size: 14px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    .receipt.a4 .company-name { font-size: 22px; }
+    .receipt.a4 .company-arabic { font-size: 16px; }
+    .receipt.a4 .company-addr { font-size: 13px; margin-top: 4px; }
+    .receipt.a4 .info-table td { font-size: 14px; }
+    .receipt.a4 .items-table { font-size: 13px; }
+    .receipt.a4 .items-table th,
+    .receipt.a4 .items-table td { padding: 6px 0; }
+    .receipt.a4 .item-name-ar { font-size: 11px; }
+    .receipt.a4 .totals-table td { font-size: 14px; }
+    .receipt.a4 .grand-total td { font-size: 16px; padding-top: 6px; }
+    .receipt.a4 .footer-msg { font-size: 13px; }
+    .receipt.a4 .logo { max-height: 80px; max-width: 120px; }
     .center { text-align: center; }
     .bold { font-weight: bold; }
     .divider { border: none; border-top: 1px dashed #000; margin: 8px 0; }
@@ -93,7 +107,7 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
   </style>
 </head>
 <body>
-  <div class="receipt">
+  <div class="receipt <?= $format_class ?>">
 
     <!-- HEADER -->
     <?php if ($show_logo && $company_logo): ?>
@@ -101,6 +115,7 @@ $has_tax    = $tc['tax_type'] !== 'none' && $tc['tax_rate'] > 0;
     <?php endif; ?>
     <div class="center">
       <div class="company-name"><?= htmlspecialchars($company_name) ?></div>
+      <div class="company-addr">Branch / فرع: <?= htmlspecialchars($inv['branch_name']) ?></div>
       <?php $company_name_ar = get_setting('company_name_ar', ''); if ($company_name_ar): ?>
       <div class="company-arabic"><?= htmlspecialchars($company_name_ar) ?></div>
       <?php endif; ?>
